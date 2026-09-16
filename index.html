@@ -184,8 +184,33 @@
           <p class="note">Игра должна быть в режиме «окно без рамки». В полноэкранном режиме Windows прячет всё, что поверх игры.</p>
           <p class="note">Если закрыть это окно, субтитры продолжат работать. Hark останется в трее возле часов, оттуда же его можно выключить.</p>
         </section>
+        <section class="group" id="support">
+          <h2>Написать нам</h2>
+          <p class="note">Что-то не работает, есть идея или вопрос? Напишите, сообщение придёт разработчику.</p>
+          <div class="seg" id="fb-category">
+            <button type="button" data-value="problem" aria-pressed="true">Проблема</button>
+            <button type="button" data-value="idea" aria-pressed="false">Идея</button>
+            <button type="button" data-value="other" aria-pressed="false">Другое</button>
+          </div>
+          <textarea id="fb-message" rows="4" maxlength="2000" placeholder="Опишите, что случилось или что добавить"></textarea>
+          <input type="text" id="fb-contact" maxlength="200" placeholder="Как с вами связаться: Telegram или почта (необязательно)" autocomplete="off" />
+          <label class="field toggle">
+            <span class="label">Приложить технический отчёт (без текста разговоров)</span>
+            <input type="checkbox" id="fb-attach" checked />
+          </label>
+          <div class="button-row">
+            <button type="button" class="primary" id="fb-send">Отправить</button>
+          </div>
+          <p class="note" id="fb-status" role="status"></p>
+          <label class="field toggle">
+            <span class="label">Сообщать разработчику об ошибках программы автоматически</span>
+            <input type="checkbox" id="send-errors" />
+          </label>
+          <p class="note">Уходят только версия, Windows и текст ошибки. Что говорят в чате, никуда не отправляется.</p>
+        </section>
+
         <footer class="legal">
-          <span class="report-row"><span id="app-version">Hark</span><button type="button" class="text-btn" id="update-check">Проверить обновления</button><span id="update-check-status"></span></span>
+          <span class="report-row"><span id="app-version">Hark</span><button type="button" class="text-btn" id="update-check">Проверить обновления</button><button type="button" class="text-btn" id="to-support">Написать нам</button><span id="update-check-status"></span></span>
           <span>© 2026 MGI. Hark является собственностью MGI, используется по лицензии.</span>
           <span class="report-row"><button type="button" class="text-btn" id="report">Скопировать отчёт, если что-то не работает</button><span id="report-done"></span></span>
         </footer>

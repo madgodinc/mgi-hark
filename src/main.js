@@ -1,4 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
+
+// Failures in the interface itself reach the developer like any other error.
+window.addEventListener("error", (e) => invoke("report_error", { kind: "main", message: `${e.message} at ${e.filename}:${e.lineno}` }).catch(() => {}));
+window.addEventListener("unhandledrejection", (e) => invoke("report_error", { kind: "main", message: String(e.reason) }).catch(() => {}));
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emit } from "@tauri-apps/api/event";
@@ -627,6 +631,7 @@ async function installUpdate(update) {
     await relaunch();
   } catch (e) {
     text.textContent = `Не получилось обновиться: ${e}. Попробуйте позже.`;
+    invoke("report_error", { kind: "update", message: String(e) }).catch(() => {});
     say(text.textContent);
     btn.disabled = false;
   }
@@ -686,4 +691,53 @@ $("report").addEventListener("click", async () => {
     done.textContent = `Не получилось скопировать: ${e}`;
   }
   setTimeout(() => (done.textContent = ""), 8000);
+});
+
+/* ───────── support ───────── */
+
+let fbCategory = "problem";
+$("fb-category").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  fbCategory = b.dataset.value;
+  for (const x of $("fb-category").querySelectorAll("button")) x.setAttribute("aria-pressed", String(x === b));
+  // A technical report helps with problems; ideas rarely need one.
+  $("fb-attach").checked = fbCategory === "problem";
+});
+
+$("fb-send").addEventListener("click", async () => {
+  const status = $("fb-status");
+  const message = $("fb-message").value.trim();
+  status.classList.remove("warn", "ok");
+  if (message.length < 3) {
+    status.classList.add("warn");
+    status.textContent = "Напишите хотя бы пару слов.";
+    return;
+  }
+  $("fb-send").disabled = true;
+  status.textContent = "Отправляю…";
+  try {
+    const number = await invoke("send_feedback", {
+      category: fbCategory,
+      message,
+      contact: $("fb-contact").value.trim(),
+      attach: $("fb-attach").checked,
+    });
+    status.classList.add("ok");
+    status.textContent = `Отправлено, спасибо! Номер обращения: ${number}.`;
+    $("fb-message").value = "";
+  } catch (e) {
+    status.classList.add("warn");
+    status.textContent = `Не отправилось: ${e}.`;
+  } finally {
+    $("fb-send").disabled = false;
+  }
+});
+
+$("send-errors").checked = state.settings.send_errors ?? true;
+$("send-errors").addEventListener("change", (e) => invoke("save_settings", { settings: { send_errors: e.target.checked } }));
+
+$("to-support").addEventListener("click", () => {
+  $("support").scrollIntoView({ behavior: "smooth", block: "start" });
+  setTimeout(() => $("fb-message").focus({ preventScroll: true }), 400);
 });

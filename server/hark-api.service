@@ -1,0 +1,42 @@
+# /etc/systemd/system/hark-api.service
+[Unit]
+Description=Hark reports: error reports and support messages from installed copies
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mad
+WorkingDirectory=/data/hark-api
+EnvironmentFile=/data/hark-api/hark-api.env
+Environment=HARK_API_HOST=127.0.0.1
+Environment=HARK_API_PORT=8795
+Environment=HARK_API_DB=/data/hark-api/hark.db
+ExecStart=/usr/bin/python3 /data/hark-api/hark_api.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/data/hark-api/hark-api.log
+StandardError=append:/data/hark-api/hark-api.log
+
+# Faces untrusted clients: the tightest containment that still lets it write
+# its own database and reach Telegram.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/data/hark-api
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

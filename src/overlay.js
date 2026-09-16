@@ -1,4 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
+
+window.addEventListener("error", (e) => invoke("report_error", { kind: "overlay", message: `${e.message} at ${e.filename}:${e.lineno}` }).catch(() => {}));
+window.addEventListener("unhandledrejection", (e) => invoke("report_error", { kind: "overlay", message: String(e.reason) }).catch(() => {}));
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { CaptionView } from "./captions.js";

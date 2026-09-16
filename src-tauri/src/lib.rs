@@ -1,4 +1,5 @@
 mod autostart;
+mod report;
 #[macro_use]
 pub mod diag;
 mod topmost;
@@ -103,7 +104,7 @@ fn start_engine(app: &AppHandle) {
         .spawn(move || {
             let sink = EventSink(handle.clone());
             if let Err(e) = asr::run(paths, rx, sink) {
-                diag!("speech engine failed: {e}");
+                report::error("engine", &e.to_string());
                 *handle.state::<Hark>().engine.lock().unwrap() = None;
                 let _ = handle.emit("models", json!({ "stage": "error", "message": e.to_string() }));
             }
@@ -365,6 +366,27 @@ fn close_update_notice(app: AppHandle) {
     }
 }
 
+/// A failure seen by a page (the interface itself, an update that did not install).
+#[tauri::command]
+fn report_error(kind: String, message: String) {
+    report::error(&format!("ui-{}", kind.chars().take(20).collect::<String>()), &message);
+}
+
+/// A support message from the "Написать нам" form.
+#[tauri::command]
+async fn send_feedback(
+    app: AppHandle,
+    category: String,
+    message: String,
+    contact: String,
+    attach: bool,
+) -> Result<u64, String> {
+    let report = if attach { Some(diag_report(app.clone(), app.state::<Hark>())) } else { None };
+    tauri::async_runtime::spawn_blocking(move || report::feedback(&category, &message, &contact, report))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn set_autostart(hark: State<Hark>, on: bool) -> Result<(), String> {
     autostart::set(on)?;
@@ -447,7 +469,7 @@ fn download_models(app: AppHandle, hark: State<Hark>) {
             Ok(()) if hark.lang() == lang => start_engine(&handle),
             Ok(()) => {}
             Err(e) => {
-                diag!("model download failed: {e}");
+                report::error("model-download", &format!("{lang:?}: {e}"));
                 let _ = handle.emit("models", json!({ "stage": "error", "message": e.to_string() }));
             }
         }
@@ -644,6 +666,27 @@ pub fn run() {
                 .unwrap_or_else(|| json!({}));
             let models_dir = app.path().app_local_data_dir()?.join("models");
             diag::init(app.path().app_log_dir()?);
+            // An anonymous id per installation, made once.
+            let mut settings = settings;
+            if settings.get("install_id").and_then(|v| v.as_str()).is_none() {
+                settings["install_id"] = json!(report::new_install_id());
+                let _ = std::fs::create_dir_all(&config_dir);
+                let _ = std::fs::write(&settings_path, serde_json::to_vec_pretty(&settings).unwrap_or_default());
+            }
+            {
+                let handle = app.handle().clone();
+                report::init(report::Identity {
+                    install: settings["install_id"].as_str().unwrap_or_default().to_string(),
+                    version: app.package_info().version.to_string(),
+                    os: sysinfo::System::long_os_version().unwrap_or_default(),
+                    enabled: Box::new(move || {
+                        handle
+                            .try_state::<Hark>()
+                            .map(|h| h.settings.lock().unwrap().get("send_errors").and_then(|v| v.as_bool()).unwrap_or(true))
+                            .unwrap_or(true)
+                    }),
+                });
+            }
             diag!(
                 "start: Hark {} on {}, hidden {}",
                 app.package_info().version,
@@ -750,6 +793,8 @@ pub fn run() {
             download_models,
             set_language,
             set_autostart,
+            report_error,
+            send_feedback,
             update_available,
             close_update_notice,
             diag_report,

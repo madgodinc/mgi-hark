@@ -28,7 +28,7 @@ anyhow = "1"
 sherpa-onnx = "1.13.8"
 wasapi = "0.24"
 sysinfo = { version = "0.38", default-features = false, features = ["system"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking", "json"] }
 bzip2 = "0.5"
 tar = "0.4"
 

@@ -81,7 +81,7 @@ impl Capture {
             .spawn(move || {
                 let result = run(&target, &mut out, &flag);
                 if let Err(e) = &result {
-                    diag!("capture failed: {e}");
+                    crate::report::error("capture", &format!("{target:?}: {e}"));
                 }
                 on_stop(match result {
                     Ok(reason) => reason,
