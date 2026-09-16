@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hark · субтитры голосового чата</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta name="description" content="Hark показывает голосовой чат Discord, Steam и TeamSpeak субтитрами поверх игры для тех, кто не слышит. Бесплатно, работает без интернета.">
+<style>
+@font-face { font-family: "Onest"; font-weight: 100 900; font-display: swap; src: url(onest-cyrillic.woff2) format("woff2"); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: "Onest"; font-weight: 100 900; font-display: swap; src: url(onest-latin.woff2) format("woff2"); unicode-range: U+0000-00FF, U+2000-206F, U+2190-21FF; }
+@font-face { font-family: "Unbounded"; font-weight: 200 900; font-display: swap; src: url(unbounded-latin.woff2) format("woff2"); }
+
+:root {
+  --bg: oklch(0.13 0 0);
+  --raise: oklch(0.21 0.007 118);
+  --line: oklch(0.28 0.008 118);
+  --ink: oklch(0.96 0.006 118);
+  --ink-2: oklch(0.8 0.012 118);
+  --ink-3: oklch(0.66 0.012 118);
+  --lime: oklch(0.9 0.19 118);
+  --lime-hover: oklch(0.95 0.16 118);
+  --lime-ink: oklch(0.18 0.035 118);
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --gutter: clamp(16px, 5vw, 56px);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 17px/1.55 "Onest", system-ui, sans-serif; }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--lime); outline-offset: 3px; }
+
+main { max-width: 1120px; margin: 0 auto; padding: clamp(28px, 6vw, 72px) var(--gutter) 48px; }
+.top { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+.wordmark { font: 700 26px/1 "Unbounded", sans-serif; color: var(--lime); letter-spacing: -0.02em; }
+.by { color: var(--ink-3); font-size: 14px; text-decoration: none; }
+.by:hover { color: var(--ink); }
+
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: clamp(28px, 5vw, 64px); align-items: center; margin-top: clamp(32px, 7vw, 80px); }
+h1 { margin: 0; font-size: clamp(34px, 5.6vw, 60px); line-height: 1.04; font-weight: 750; letter-spacing: -0.03em; text-wrap: balance; }
+.lead { margin: 20px 0 0; color: var(--ink-2); font-size: clamp(17px, 2vw, 19px); max-width: 44ch; text-wrap: pretty; }
+
+.download { margin-top: 32px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.button {
+  display: inline-flex; align-items: center; gap: 14px;
+  padding: 20px 34px 20px 28px;
+  background: var(--lime); color: var(--lime-ink);
+  font-size: 21px; font-weight: 700; text-decoration: none;
+  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+  transition: background-color 160ms var(--ease), transform 160ms var(--ease);
+}
+.button:hover { background: var(--lime-hover); }
+.button:active { transform: translateY(1px); }
+.button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.meta { color: var(--ink-3); font-size: 14px; margin: 0; }
+
+.shot { margin: 0; }
+.shot img { display: block; width: 100%; height: auto; clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px); }
+
+.steps { list-style: none; margin: clamp(48px, 8vw, 96px) 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--line); counter-reset: s; }
+.steps li { counter-increment: s; padding: 22px 24px 4px 0; }
+.steps li + li { padding-left: 24px; border-left: 1px solid var(--line); }
+.steps li::before { content: counter(s); display: block; font: 700 15px/1 "Unbounded", sans-serif; color: var(--lime); margin-bottom: 12px; }
+.steps b { display: block; font-size: 19px; margin-bottom: 4px; }
+.steps span { color: var(--ink-2); font-size: 15.5px; }
+
+.facts { margin: 48px 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 10px 28px; max-width: 760px; font-size: 15.5px; }
+.facts dt { color: var(--ink-3); }
+.facts dd { margin: 0; color: var(--ink-2); }
+
+footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: 13.5px; display: flex; flex-wrap: wrap; gap: 8px 24px; }
+
+@media (max-width: 820px) {
+  .hero { grid-template-columns: 1fr; }
+  .shot { order: 2; }
+  .download, .button { width: 100%; }
+  .button { justify-content: center; }
+  .steps { grid-template-columns: 1fr; }
+  .steps li + li { padding-left: 0; border-left: 0; border-top: 1px solid var(--line); }
+  .facts { grid-template-columns: 1fr; gap: 2px; }
+  .facts dd { margin-bottom: 12px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition-duration: 1ms !important; } }
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <span class="wordmark">hark</span>
+    <a class="by" href="https://madgodinc.net/">MGI · madgodinc.net</a>
+  </div>
+
+  <section class="hero">
+    <div>
+      <h1>Субтитры голосового чата для тех, кто не слышит</h1>
+      <p class="lead">Hark превращает голоса из Discord, Steam или TeamSpeak в текст и показывает его поверх игры. Бесплатно. Распознаёт речь прямо на компьютере, голоса никуда не отправляются.</p>
+      <div class="download">
+        <a class="button" href="Hark-setup.exe" download>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M6.5 10 12 15.5 17.5 10M4 20h16"/></svg>
+          Скачать Hark
+        </a>
+        <p class="meta" id="meta">Для Windows 10 и 11 · 10.5 МБ</p>
+      </div>
+    </div>
+    <figure class="shot">
+      <img src="hark.png" width="1180" height="780" alt="Окно Hark: выбор программы, настройки текста и субтитры поверх игры">
+    </figure>
+  </section>
+
+  <ol class="steps">
+    <li><b>Скачайте и запустите</b><span>Если Windows предупредит о неизвестном издателе, нажмите «Подробнее», затем «Выполнить в любом случае».</span></li>
+    <li><b>Нажмите «Слушать»</b><span>Hark сам скачает модель речи и сам выберет Discord, если он открыт.</span></li>
+    <li><b>Играйте</b><span>Поставьте игру в режим «окно без рамки». Дальше Hark запускается и обновляется сам.</span></li>
+  </ol>
+
+  <dl class="facts">
+    <dt>Языки речи</dt><dd>русский и английский</dd>
+    <dt>Что слушает</dt><dd>только выбранную программу: игра и музыка не мешают</dd>
+    <dt>Интернет</dt><dd>нужен только для первой загрузки модели (165 МБ) и обновлений</dd>
+    <dt>Настройки</dt><dd>размер, цвет, обводка и подложка текста, место и размер окна субтитров</dd>
+    <dt>Система</dt><dd>Windows 10 версии 2004 и новее, Windows 11</dd>
+  </dl>
+
+  <footer>
+    <span>© 2026 MGI. Hark является собственностью MGI и распространяется бесплатно по лицензии для личного использования.</span>
+    <span id="version"></span>
+  </footer>
+</main>
+<script>
+// The version and size come from the release manifest, so the page never lies after an update.
+fetch("latest.json", { cache: "no-store" })
+  .then((r) => r.json())
+  .then((m) => {
+    document.getElementById("version").textContent = "Версия " + m.version;
+    document.getElementById("meta").textContent = "Для Windows 10 и 11 · версия " + m.version + " · 10.5 МБ";
+  })
+  .catch(() => {});
+</script>
+</body>
+</html>
