@@ -25,8 +25,19 @@ view.set(state.settings);
 signs.set({ speed: view.s.signSpeed, lang: state.settings.lang || "ru", style: view.s.signStyle });
 setEdit(state.edit);
 
+let lookSampleTimer = 0;
 await listen("settings", (e) => {
   view.set(e.payload);
+  // The person is tuning the look: put a sample on the real screen so they see
+  // it where it will be, then take it away when they stop.
+  if (!document.body.classList.contains("edit")) {
+    const empty = [...view.items.keys()].every((id) => id === SAMPLE.id);
+    if (empty) {
+      view.push(SAMPLE);
+      clearTimeout(lookSampleTimer);
+      lookSampleTimer = setTimeout(() => view.remove(SAMPLE.id), 4000);
+    }
+  }
   signs.set({ speed: view.s.signSpeed, style: view.s.signStyle });
 });
 await listen("language", (e) => {

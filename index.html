@@ -102,7 +102,7 @@
             </div>
           </div>
           <label class="field range">
-            <span class="label">Обводка</span>
+            <span class="label">Контур букв</span>
             <input type="range" data-key="outline" min="0" max="1" step="0.05" />
             <output data-for="outline" data-percent></output>
           </label>
@@ -172,7 +172,7 @@
             <button type="button" class="text-btn" id="reset-pos">Вернуть вниз по центру</button>
           </div>
           <dl class="keys">
-            <dt><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>H</kbd></dt>
+            <dt><kbd>Ctrl</kbd><kbd>~</kbd></dt>
             <dd>переместить окно</dd>
             <dt><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>J</kbd></dt>
             <dd>спрятать или показать</dd>
@@ -224,6 +224,16 @@
           </div>
         </div>
 
+        <div class="sample">
+          <div class="sample-head">
+            <span>Образец в натуральную величину</span>
+            <span class="sample-hint">меняется сразу, пока вы двигаете настройки слева</span>
+          </div>
+          <div class="sample-stage">
+            <div class="hark-view" id="sample-view"><div class="cap-root" id="sample"></div></div>
+          </div>
+        </div>
+
         <div class="screen-wrap">
           <div class="screen" id="screen">
             <div class="scene" aria-hidden="true">
@@ -241,7 +251,7 @@
             </div>
           </div>
           <div class="screen-caption">
-            <span id="screen-label">Так субтитры будут лежать поверх игры</span>
+            <span id="screen-label">Где окно субтитров лежит на экране (уменьшено)</span>
             <button type="button" class="text-btn" id="demo">Показать пример</button>
           </div>
         </div>

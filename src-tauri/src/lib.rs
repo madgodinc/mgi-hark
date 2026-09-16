@@ -494,7 +494,8 @@ fn with_args<'a, M: Manager<tauri::Wry>>(
 }
 
 fn toggle_edit_shortcut() -> Shortcut {
-    Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyH)
+    // Ctrl+~, the key above Tab, same as the CreepiDota overlay.
+    Shortcut::new(Some(Modifiers::CONTROL), Code::Backquote)
 }
 
 fn toggle_visible_shortcut() -> Shortcut {

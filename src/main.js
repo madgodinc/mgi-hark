@@ -17,6 +17,40 @@ $("win-close").addEventListener("click", () => win.close());
 const state = await invoke("get_state");
 let settings = withDefaults(state.settings);
 const preview = new CaptionView($("preview"), settings, $("preview-view"));
+
+/* ───────── samples: the look is always visible ───────── */
+
+// The full-size sample keeps two lines on screen whatever "fade" and "lines"
+// say, so the look can be judged at any moment.
+const sampleSettings = (s) => ({ ...s, fade: 0, lines: 2, mode: "text" });
+const sample = new CaptionView($("sample"), sampleSettings(settings), $("sample-view"));
+// Tall enough for two lines at the chosen size, so big text is not cut off.
+function fitSample() {
+  const px = settings.size || 34;
+  // A floor for two lines; wrapping to three grows it instead of cutting the top.
+  $("sample-view").parentElement.style.minHeight = `min(46vh, ${Math.round(px * 1.28 * 2.6 + 34)}px)`;
+}
+fitSample();
+const SAMPLE_FINAL = "Привет! Слышишь меня? Заходи в голосовой канал.";
+const SAMPLE_DRAFT = "я иду на центральную линию прикрой меня справа".split(" ");
+sample.push({ id: 1, text: SAMPLE_FINAL, final: true });
+let sampleWords = 0;
+setInterval(() => {
+  // A draft that types itself, then settles, then starts over.
+  sampleWords = (sampleWords + 1) % (SAMPLE_DRAFT.length + 4);
+  const n = Math.min(sampleWords, SAMPLE_DRAFT.length);
+  if (n === 0) return;
+  const done = sampleWords >= SAMPLE_DRAFT.length + 1;
+  const text = done ? "Я иду на центральную линию, прикрой меня справа." : SAMPLE_DRAFT.slice(0, n).join(" ");
+  sample.push({ id: 2, text, final: done });
+}, 420);
+
+// The mini screen shows a placeholder while nobody is talking.
+const PREVIEW_SAMPLE = { id: -1, text: "Так будут выглядеть субтитры", final: true };
+function previewPlaceholder() {
+  if (preview.items.size === 0) preview.push(PREVIEW_SAMPLE);
+}
+setInterval(previewPlaceholder, 1500);
 let lang = state.settings.lang || "ru";
 const previewSigns = new SignPlayer($("preview-hand"), $("preview-spelled"), $("preview-strip"));
 previewSigns.set({ speed: settings.signSpeed, lang, style: settings.signStyle });
@@ -30,6 +64,8 @@ let saveTimer = 0;
 function update(key, value) {
   settings = { ...settings, [key]: value };
   preview.set(settings);
+  sample.set(sampleSettings(settings));
+  fitSample();
   previewSigns.set({ speed: settings.signSpeed, style: settings.signStyle });
   reflect();
   clearTimeout(saveTimer);
@@ -462,6 +498,7 @@ await listen("language", (e) => {
 });
 
 await listen("caption", (e) => {
+  preview.remove(PREVIEW_SAMPLE.id, true);
   preview.push(e.payload);
   if (e.payload.final && e.payload.text && settings.mode !== "text") previewSigns.say(e.payload.text, e.payload.id);
   logCaption(e.payload);

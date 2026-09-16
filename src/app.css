@@ -817,6 +817,48 @@ kbd {
   display: none;
 }
 
+.sample {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: none;
+}
+
+.sample-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+.sample-head span:first-child {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+/* A slice of a game at real pixel size: the caption is drawn 1:1. */
+.sample-stage {
+  position: relative;
+  max-height: 52vh;
+  overflow: hidden;
+  padding: 12px 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  /* Bright on the left, dark on the right: games are both, and the contour
+     and the background density only show their worth against light scenes. */
+  background:
+    linear-gradient(90deg, oklch(0.86 0.06 85) 0%, oklch(0.74 0.08 150) 38%, oklch(0.32 0.05 200) 62%, oklch(0.18 0.03 220) 100%);
+  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+}
+
+.sample-stage .hark-view {
+  height: auto;
+  max-height: 100%;
+}
+
 .screen-wrap {
   display: flex;
   flex-direction: column;
@@ -827,7 +869,7 @@ kbd {
 .screen {
   position: relative;
   /* Same proportions as the real monitor, so the overlay box sits where it will. */
-  width: min(100%, calc(46vh * var(--screen-ar, 1.7778)));
+  width: min(100%, calc(30vh * var(--screen-ar, 1.7778)));
   aspect-ratio: var(--screen-ar, 1.7778);
   overflow: hidden;
   background: oklch(0.2 0.03 230);

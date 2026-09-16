@@ -43,6 +43,19 @@ function hexToRgb(hex) {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
+function outlineShadow(width) {
+  if (width < 0.3) return "none";
+  const rings = [];
+  // Two rings (inner and outer) at 16 angles keep round letters round.
+  for (const radius of [width * 0.5, width]) {
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      rings.push(`${(Math.cos(a) * radius).toFixed(2)}px ${(Math.sin(a) * radius).toFixed(2)}px 0 #000`);
+    }
+  }
+  return rings.join(", ");
+}
+
 /** Writes the look into CSS custom properties on the caption root. */
 export function applyLook(root, s) {
   const [r, g, b] = hexToRgb(s.bgColor);
@@ -55,14 +68,9 @@ export function applyLook(root, s) {
   style.setProperty("--cap-bg", `rgb(${r} ${g} ${b} / ${s.bgOpacity})`);
   style.setProperty("--cap-align", s.align);
   style.setProperty("--cap-transform", s.caps ? "uppercase" : "none");
-  // Outline as stacked shadows: a stroke eats into thin letters, a shadow does not.
-  const o = s.outline * Math.max(1.5, px / 14);
-  style.setProperty(
-    "--cap-shadow",
-    s.outline > 0
-      ? `0 0 ${o}px rgb(0 0 0 / .95), 0 0 ${o * 0.5}px rgb(0 0 0 / .95), ${o * 0.35}px ${o * 0.35}px 0 rgb(0 0 0 / .8)`
-      : "none",
-  );
+  // A hard black contour drawn as a ring of sharp shadows around each letter.
+  // text-stroke would eat into the letters and thin them; shadows sit outside.
+  style.setProperty("--cap-shadow", outlineShadow(s.outline * px * 0.09));
 }
 
 /**
