@@ -4,7 +4,8 @@
   "description": "Settings window and caption overlay: events, window controls for the custom title bar and overlay edit mode.",
   "windows": [
     "main",
-    "overlay"
+    "overlay",
+    "notice"
   ],
   "permissions": [
     "core:default",

@@ -319,12 +319,47 @@ fn stop_listening(app: AppHandle, hark: State<Hark>) {
     update_tray(&app);
 }
 
-/// The page found an update while the settings window may be hidden: say so in the tray.
+const NOTICE: &str = "notice";
+
+/// An update appeared mid-session. The settings window may be hidden and the
+/// person may be in a game, so a small window with "Обновить" and "Позже"
+/// comes up in the corner of the screen, above the taskbar.
 #[tauri::command]
-fn update_available(app: AppHandle, version: String) {
+fn update_available(app: AppHandle, version: String) -> Result<(), String> {
     diag!("update available: {version}");
     if let Some(tray) = app.tray_by_id("main") {
-        let _ = tray.set_tooltip(Some(format!("Hark: вышла версия {version}, откройте, чтобы обновить")));
+        let _ = tray.set_tooltip(Some(format!("Hark: вышла версия {version}")));
+    }
+    if app.get_webview_window(NOTICE).is_some() {
+        return Ok(());
+    }
+    let (w, h) = (360.0, 132.0);
+    let mut builder = WebviewWindowBuilder::new(&app, NOTICE, WebviewUrl::App(format!("notice.html?v={version}").into()))
+        .title("Hark · обновление")
+        .inner_size(w, h)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .focused(false)
+        .resizable(false);
+    if let Ok(Some(monitor)) = app.primary_monitor() {
+        let scale = monitor.scale_factor();
+        let area = monitor.work_area();
+        let x = area.position.x as f64 / scale + area.size.width as f64 / scale - w - 16.0;
+        let y = area.position.y as f64 / scale + area.size.height as f64 / scale - h - 16.0;
+        builder = builder.position(x, y);
+    }
+    builder.build().map_err(|e| e.to_string())?;
+    topmost::keep(app.clone(), NOTICE);
+    Ok(())
+}
+
+#[tauri::command]
+fn close_update_notice(app: AppHandle) {
+    if let Some(w) = app.get_webview_window(NOTICE) {
+        let _ = w.close();
     }
 }
 
@@ -710,6 +745,7 @@ pub fn run() {
             set_language,
             set_autostart,
             update_available,
+            close_update_notice,
             diag_report,
             set_edit,
             set_overlay_visible,

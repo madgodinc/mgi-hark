@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Hark · обновление</title>
+    <link rel="stylesheet" href="/src/notice.css" />
+  </head>
+  <body>
+    <main class="notice" data-tauri-drag-region>
+      <p class="title" data-tauri-drag-region>Вышла новая версия Hark <b id="version"></b></p>
+      <p class="text" id="text" data-tauri-drag-region>Обновление займёт меньше минуты, субтитры включатся сами.</p>
+      <div class="actions">
+        <button type="button" class="later" id="later">Позже</button>
+        <button type="button" class="go" id="go">Обновить</button>
+      </div>
+    </main>
+    <script type="module" src="/src/notice.js"></script>
+  </body>
+</html>

@@ -603,6 +603,8 @@ getVersion().then((v) => ($("app-version").textContent = `Hark ${v}`)).catch(() 
 
 let pendingUpdate = null;
 
+const say = (t) => emit("update-progress", t);
+
 async function installUpdate(update) {
   const text = $("update-text");
   const btn = $("update-go");
@@ -615,12 +617,17 @@ async function installUpdate(update) {
       if (event.event === "Progress") {
         got += event.data.chunkLength;
         text.textContent = total ? `Скачиваю обновление: ${Math.round((got / total) * 100)}%` : "Скачиваю обновление…";
+        say(text.textContent);
       }
-      if (event.event === "Finished") text.textContent = "Устанавливаю, Hark перезапустится сам…";
+      if (event.event === "Finished") {
+        text.textContent = "Устанавливаю, Hark перезапустится сам…";
+        say(text.textContent);
+      }
     });
     await relaunch();
   } catch (e) {
     text.textContent = `Не получилось обновиться: ${e}. Попробуйте позже.`;
+    say(text.textContent);
     btn.disabled = false;
   }
 }
@@ -653,6 +660,7 @@ async function checkForUpdate({ manual = false } = {}) {
     $("update-text").textContent = `Вышла новая версия Hark ${update.version}`;
     $("update").hidden = false;
     if (manual) status.textContent = `Есть версия ${update.version}, нажмите «Обновить» вверху`;
+    // Mid-session: a small window in the corner, visible over the game.
     invoke("update_available", { version: update.version }).catch(() => {});
   } catch (e) {
     // Offline or the site is down: try again later, never bother the person.
@@ -661,6 +669,7 @@ async function checkForUpdate({ manual = false } = {}) {
 }
 
 $("update-go").addEventListener("click", () => pendingUpdate && installUpdate(pendingUpdate));
+listen("update-now", () => pendingUpdate && installUpdate(pendingUpdate));
 $("update-check").addEventListener("click", () => checkForUpdate({ manual: true }));
 checkForUpdate();
 setInterval(checkForUpdate, 60 * 60 * 1000);
