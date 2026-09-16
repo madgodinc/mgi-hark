@@ -5,7 +5,7 @@ platform: web (Tauri desktop, Windows)
 
 ## What it is
 
-Live captions for people with severe hearing loss. Hark listens to one program's audio (Discord, Steam, TeamSpeak) or to the whole system, turns Russian speech into text on the user's own machine, and shows it in a transparent overlay on top of the game.
+Live captions for people with hearing impairments. Hark listens to one program's audio (Discord, Steam, TeamSpeak) or to the whole system, turns Russian speech into text on the user's own machine, and shows it in a transparent overlay on top of the game.
 
 ## Who uses it
 
