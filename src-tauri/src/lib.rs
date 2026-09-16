@@ -324,8 +324,10 @@ const NOTICE: &str = "notice";
 /// An update appeared mid-session. The settings window may be hidden and the
 /// person may be in a game, so a small window with "Обновить" and "Позже"
 /// comes up in the corner of the screen, above the taskbar.
+// async: building a window inside a synchronous command deadlocks on Windows,
+// because sync commands run on the main thread the new window also needs.
 #[tauri::command]
-fn update_available(app: AppHandle, version: String) -> Result<(), String> {
+async fn update_available(app: AppHandle, version: String) -> Result<(), String> {
     diag!("update available: {version}");
     if let Some(tray) = app.tray_by_id("main") {
         let _ = tray.set_tooltip(Some(format!("Hark: вышла версия {version}")));
@@ -334,7 +336,7 @@ fn update_available(app: AppHandle, version: String) -> Result<(), String> {
         return Ok(());
     }
     let (w, h) = (360.0, 132.0);
-    let mut builder = WebviewWindowBuilder::new(&app, NOTICE, WebviewUrl::App(format!("notice.html?v={version}").into()))
+    let mut builder = with_args(WebviewWindowBuilder::new(&app, NOTICE, WebviewUrl::App(format!("notice.html?v={version}").into())), &browser_args())
         .title("Hark · обновление")
         .inner_size(w, h)
         .decorations(false)
@@ -352,7 +354,7 @@ fn update_available(app: AppHandle, version: String) -> Result<(), String> {
         builder = builder.position(x, y);
     }
     builder.build().map_err(|e| e.to_string())?;
-    topmost::keep(app.clone(), NOTICE);
+    topmost::keep(app.clone(), NOTICE, |_| false);
     Ok(())
 }
 
@@ -580,6 +582,15 @@ fn demo(app: AppHandle, hark: State<Hark>) {
     });
 }
 
+/// Every window of the app shares one WebView2 environment and must be built
+/// with identical browser arguments. HARK_CDP_PORT opens DevTools protocol
+/// access for automated checks; users never set it.
+fn browser_args() -> Option<String> {
+    std::env::var("HARK_CDP_PORT").ok().map(|port| {
+        format!("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --remote-debugging-port={port}")
+    })
+}
+
 fn with_args<'a, M: Manager<tauri::Wry>>(
     builder: WebviewWindowBuilder<'a, tauri::Wry, M>,
     args: &Option<String>,
@@ -660,12 +671,7 @@ pub fn run() {
                 let _ = autostart::set(true);
             }
 
-            // Both windows share one WebView2 environment, so they must get
-            // identical browser arguments. HARK_CDP_PORT opens DevTools
-            // protocol access for automated checks; users never set it.
-            let browser_args = std::env::var("HARK_CDP_PORT").ok().map(|port| {
-                format!("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --remote-debugging-port={port}")
-            });
+            let browser_args = browser_args();
 
             with_args(WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into())), &browser_args)
                 .title("Hark")
@@ -700,7 +706,7 @@ pub fn run() {
                 None => place_default(app.handle(), &overlay),
             }
             overlay.set_ignore_cursor_events(true)?;
-            topmost::keep(app.handle().clone(), OVERLAY);
+            topmost::keep(app.handle().clone(), OVERLAY, |app| app.state::<Hark>().edit.load(Ordering::SeqCst));
             if settings.get("overlay_visible").and_then(|v| v.as_bool()).unwrap_or(true) {
                 overlay.show()?;
             }

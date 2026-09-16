@@ -14,13 +14,16 @@ use tauri::{AppHandle, Manager};
 
 const EVERY: Duration = Duration::from_millis(1000);
 
-pub fn keep(app: AppHandle, label: &'static str) {
+/// `paused` is asked every tick; while it says true the window is left alone.
+/// Re-asserting the z-order during a drag cancels the drag, so the overlay's
+/// move mode pauses this.
+pub fn keep(app: AppHandle, label: &'static str, paused: fn(&AppHandle) -> bool) {
     std::thread::Builder::new()
         .name("topmost".into())
         .spawn(move || loop {
             std::thread::sleep(EVERY);
             let Some(window) = app.get_webview_window(label) else { return };
-            if !window.is_visible().unwrap_or(false) {
+            if paused(&app) || !window.is_visible().unwrap_or(false) {
                 continue;
             }
             if let Ok(hwnd) = window.hwnd() {

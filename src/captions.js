@@ -76,13 +76,20 @@ export function applyLook(root, s) {
 /**
  * Keeps the last N phrases. A phrase arrives as drafts that grow while the
  * person speaks, then once as final text that replaces the draft in place.
+ *
+ * Reading takes time. A finished phrase stays on screen at least as long as it
+ * takes to read it; a new phrase that would push it out waits in a queue
+ * instead. When the queue grows (people talk fast), the reading time shrinks so
+ * the captions never fall far behind the conversation.
  */
 export class CaptionView {
   /** lookEl receives the CSS variables; pass the .hark-view wrapper so the sign panel shares them. */
   constructor(root, settings, lookEl = root) {
     this.root = root;
     this.lookEl = lookEl;
-    this.items = new Map(); // id -> { el, timer }
+    this.items = new Map(); // id -> { el, span, final, finalAt, words, timer }
+    this.pending = new Map(); // id -> { text, final }, waiting for a free line
+    this.flushTimer = 0;
     this.set(settings);
   }
 
@@ -96,9 +103,42 @@ export class CaptionView {
       if (item.final) this.arm(id);
       item.el.hidden = !item.final && !this.s.drafts;
     }
+    this.flush();
   }
 
-  push({ id, text, final }) {
+  /** Milliseconds a finished phrase needs on screen before it may be replaced. */
+  readTime(item) {
+    if (this.pending.size >= 3) return 900;
+    const base = Math.min(8000, Math.max(2500, 1500 + item.words * 320));
+    return this.pending.size >= 2 ? base / 2 : base;
+  }
+
+  /** The oldest line has been on screen long enough to be read. */
+  oldestReadable() {
+    const first = this.items.values().next().value;
+    if (!first) return true;
+    return first.final && performance.now() - first.finalAt >= this.readTime(first);
+  }
+
+  push(caption) {
+    const { id, text, final } = caption;
+    if (this.pending.has(id)) {
+      if (final && !text) this.pending.delete(id);
+      else this.pending.set(id, { text, final });
+      return;
+    }
+    if (!this.items.has(id)) {
+      if (final && !text) return;
+      if (this.items.size >= this.s.lines && !this.oldestReadable()) {
+        this.pending.set(id, { text, final });
+        this.scheduleFlush();
+        return;
+      }
+    }
+    this.show(caption);
+  }
+
+  show({ id, text, final }) {
     let item = this.items.get(id);
     if (final && !text) {
       if (item) this.remove(id);
@@ -111,7 +151,7 @@ export class CaptionView {
       el.append(span);
       this.root.append(el);
       requestAnimationFrame(() => el.classList.remove("entering"));
-      item = { el, span, final: false, timer: 0 };
+      item = { el, span, final: false, finalAt: 0, words: 0, timer: 0 };
       this.items.set(id, item);
     }
     if (final) {
@@ -128,6 +168,8 @@ export class CaptionView {
     } else {
       item.span.textContent = text;
     }
+    item.words = text.split(/\s+/).filter(Boolean).length;
+    if (final && !item.final) item.finalAt = performance.now();
     item.final = final;
     item.el.classList.toggle("draft", !final);
     item.el.hidden = !final && !this.s.drafts;
@@ -146,14 +188,46 @@ export class CaptionView {
     const item = this.items.get(id);
     clearTimeout(item.timer);
     if (this.s.fade > 0) {
-      item.timer = setTimeout(() => this.remove(id), this.s.fade * 1000);
+      // Never fade out before the phrase could be read.
+      const wait = Math.max(this.s.fade * 1000, this.readTime(item));
+      item.timer = setTimeout(() => this.remove(id), wait);
     }
   }
 
   trim() {
-    const extra = this.items.size - this.s.lines;
-    if (extra <= 0) return;
-    [...this.items.keys()].slice(0, extra).forEach((id) => this.remove(id, true));
+    while (this.items.size > this.s.lines && this.oldestReadable()) {
+      this.remove(this.items.keys().next().value, true);
+    }
+  }
+
+  scheduleFlush() {
+    if (this.flushTimer) return;
+    this.flushTimer = setInterval(() => this.flush(), 200);
+  }
+
+  flush() {
+    if (this.flushing) return;
+    this.flushing = true;
+    try {
+      this.drain();
+    } finally {
+      this.flushing = false;
+    }
+  }
+
+  drain() {
+    while (this.pending.size) {
+      if (this.items.size >= this.s.lines) {
+        if (!this.oldestReadable()) return;
+        this.remove(this.items.keys().next().value);
+        continue;
+      }
+      const [id, entry] = this.pending.entries().next().value;
+      this.pending.delete(id);
+      this.show({ id, ...entry });
+    }
+    clearInterval(this.flushTimer);
+    this.flushTimer = 0;
   }
 
   remove(id, instant = false) {
@@ -161,12 +235,16 @@ export class CaptionView {
     if (!item) return;
     this.items.delete(id);
     clearTimeout(item.timer);
-    if (instant) return item.el.remove();
-    item.el.classList.add("leaving");
-    setTimeout(() => item.el.remove(), 320);
+    if (instant) item.el.remove();
+    else {
+      item.el.classList.add("leaving");
+      setTimeout(() => item.el.remove(), 320);
+    }
+    if (this.pending.size) this.flush();
   }
 
   clear() {
+    this.pending.clear();
     for (const id of [...this.items.keys()]) this.remove(id, true);
   }
 }
