@@ -1,0 +1,583 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { emit } from "@tauri-apps/api/event";
+import { getVersion } from "@tauri-apps/api/app";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { CaptionView, withDefaults } from "./captions.js";
+import { SignPlayer } from "./signplayer.js";
+
+const $ = (id) => document.getElementById(id);
+const win = getCurrentWindow();
+
+$("win-min").addEventListener("click", () => win.minimize());
+$("win-close").addEventListener("click", () => win.close());
+
+const state = await invoke("get_state");
+let settings = withDefaults(state.settings);
+const preview = new CaptionView($("preview"), settings, $("preview-view"));
+let lang = state.settings.lang || "ru";
+const previewSigns = new SignPlayer($("preview-hand"), $("preview-spelled"), $("preview-strip"));
+previewSigns.set({ speed: settings.signSpeed, lang, style: settings.signStyle });
+previewSigns.onWord = (id, at) => preview.mark(id, at);
+// The hand loads in the background; the settings must work even if WebGL does not.
+previewSigns.init().catch((e) => console.error("hand preview unavailable", e));
+
+/* ───────── look settings ───────── */
+
+let saveTimer = 0;
+function update(key, value) {
+  settings = { ...settings, [key]: value };
+  preview.set(settings);
+  previewSigns.set({ speed: settings.signSpeed, style: settings.signStyle });
+  reflect();
+  clearTimeout(saveTimer);
+  // The overlay follows within a frame or two; the disk write can wait.
+  saveTimer = setTimeout(() => invoke("save_settings", { settings: pickLook(settings) }), 60);
+}
+
+function pickLook(s) {
+  const { font, size, weight, color, outline, bgColor, bgOpacity, lines, fade, align, drafts, caps, mode, signSpeed, signStyle } = s;
+  return { font, size, weight, color, outline, bgColor, bgOpacity, lines, fade, align, drafts, caps, mode, signSpeed, signStyle };
+}
+
+function formatOutput(out, value) {
+  if (out.dataset.zero && Number(value) === 0) return out.dataset.zero;
+  if (out.hasAttribute("data-percent")) return `${Math.round(value * 100)}%`;
+  return `${value}${out.dataset.unit || ""}`;
+}
+
+function reflect() {
+  for (const input of document.querySelectorAll("input[type=range][data-key]")) {
+    const v = settings[input.dataset.key];
+    input.value = v;
+    const fill = ((v - input.min) / (input.max - input.min)) * 100;
+    input.style.setProperty("--fill", `${fill}%`);
+    const out = document.querySelector(`output[data-for="${input.dataset.key}"]`);
+    if (out) out.textContent = formatOutput(out, v);
+  }
+  for (const input of document.querySelectorAll(".controls input[type=checkbox][data-key]")) {
+    input.checked = !!settings[input.dataset.key];
+  }
+  for (const seg of document.querySelectorAll(".seg[data-key]")) {
+    for (const b of seg.querySelectorAll("button")) {
+      b.setAttribute("aria-pressed", String(b.dataset.value === String(settings[seg.dataset.key])));
+    }
+  }
+  for (const group of document.querySelectorAll(".swatches[data-key]")) {
+    const value = String(settings[group.dataset.key]).toLowerCase();
+    let matched = false;
+    for (const b of group.querySelectorAll("button")) {
+      const on = b.dataset.value === value;
+      matched ||= on;
+      b.setAttribute("aria-pressed", String(on));
+    }
+    const custom = group.querySelector(".custom");
+    custom.classList.toggle("on", !matched);
+    custom.querySelector("input").value = value;
+  }
+}
+
+for (const input of document.querySelectorAll("input[type=range][data-key]")) {
+  input.addEventListener("input", () => update(input.dataset.key, Number(input.value)));
+}
+for (const input of document.querySelectorAll(".controls input[type=checkbox][data-key]")) {
+  input.addEventListener("change", () => update(input.dataset.key, input.checked));
+}
+for (const seg of document.querySelectorAll(".seg[data-key]")) {
+  seg.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    update(seg.dataset.key, seg.hasAttribute("data-number") ? Number(b.dataset.value) : b.dataset.value);
+  });
+}
+for (const group of document.querySelectorAll(".swatches[data-key]")) {
+  group.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (b) update(group.dataset.key, b.dataset.value);
+  });
+  group.querySelector("input[type=color]").addEventListener("input", (e) => update(group.dataset.key, e.target.value));
+}
+reflect();
+
+/* ───────── language and signs ───────── */
+
+function renderLang() {
+  for (const b of $("lang").querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.value === lang));
+  $("try-text").placeholder = lang === "en" ? "Type a word" : "Напишите слово";
+}
+renderLang();
+
+$("lang").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b || b.dataset.value === lang) return;
+  invoke("set_language", { lang: b.dataset.value });
+});
+
+$("try").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const text = $("try-text").value.trim();
+  if (!text) return;
+  if (settings.mode === "text") update("mode", "both");
+  previewSigns.say(text, null, { now: true });
+  emit("spell", text);
+});
+
+/* ───────── preview geometry: the overlay rectangle on a miniature screen ───────── */
+
+let overlayRect = state.settings.overlay_rect || null;
+
+function layoutPreview() {
+  const screen = $("screen");
+  const box = $("preview-overlay");
+  const dpr = window.devicePixelRatio || 1;
+  const sw = window.screen.width;
+  const sh = window.screen.height;
+  const scale = screen.clientWidth / sw;
+  // The rectangle is stored in physical pixels; the preview works in CSS pixels.
+  const r = overlayRect
+    ? { x: overlayRect.x / dpr, y: overlayRect.y / dpr, w: overlayRect.w / dpr, h: overlayRect.h / dpr }
+    : { x: sw * 0.22, y: sh * 0.7, w: sw * 0.56, h: sh * 0.2 };
+  box.style.width = `${r.w}px`;
+  box.style.height = `${r.h}px`;
+  box.style.transform = `translate(${r.x * scale}px, ${r.y * scale}px) scale(${scale})`;
+}
+$("screen").style.setProperty("--screen-ar", String(window.screen.width / window.screen.height));
+new ResizeObserver(layoutPreview).observe($("screen"));
+
+/* ───────── sources ───────── */
+
+let sources = [];
+let selected = state.settings.last_source?.name ?? null;
+let listening = state.listening;
+
+let flags = {};
+try {
+  flags = JSON.parse(localStorage.getItem("hark-flags") || "{}");
+} catch {}
+let everListened = !!flags.everListened || !!state.settings.last_source;
+let modelStage = state.engine_ready ? "done" : "";
+function saveFlags() {
+  flags.everListened = everListened;
+  try {
+    localStorage.setItem("hark-flags", JSON.stringify(flags));
+  } catch {}
+}
+
+const SYSTEM = { key: "system", name: "Весь звук компьютера", target: { kind: "system" } };
+
+function sourceKey(s) {
+  return s.key ?? `app:${s.name}`;
+}
+
+function renderSources() {
+  const list = $("sources");
+  list.replaceChildren();
+  const rows = [...sources.map((s) => ({ ...s, key: `app:${s.name}`, target: { kind: "app", pid: s.pid } })), SYSTEM];
+  if (sources.length === 0) {
+    const li = document.createElement("li");
+    li.className = "empty-row";
+    li.textContent = "Программы со звуком не найдены. Запустите Discord или Steam и нажмите «Обновить список».";
+    list.append(li);
+  }
+  for (const row of rows) {
+    const li = document.createElement("li");
+    li.setAttribute("role", "option");
+    li.setAttribute("aria-selected", String(selected === row.name));
+    li.dataset.key = sourceKey(row);
+    const pick = document.createElement("i");
+    pick.className = "pick";
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = row.name;
+    const stateEl = document.createElement("span");
+    stateEl.className = "state" + (row.playing ? " playing" : "");
+    stateEl.innerHTML = "<span class=eq><i></i><i></i><i></i></span>";
+    stateEl.append(row.key === "system" ? "" : row.playing ? "есть звук" : "тихо");
+    li.append(pick, name, stateEl);
+    li.addEventListener("click", () => {
+      selected = row.name;
+      renderSources();
+      renderListen();
+    });
+    list.append(li);
+  }
+}
+
+async function refreshSources() {
+  try {
+    sources = await invoke("list_sources");
+  } catch {
+    sources = [];
+  }
+  autoSelect();
+  renderSources();
+  renderListen();
+}
+
+function currentRow() {
+  if (selected === SYSTEM.name) return SYSTEM;
+  const s = sources.find((x) => x.name === selected);
+  return s ? { name: s.name, exe: s.exe, target: { kind: "app", pid: s.pid } } : null;
+}
+
+// Nobody has chosen yet: take the voice program that is talking, else the
+// first voice program that is running (Discord sorts first).
+function autoSelect() {
+  if (selected || listening?.on || waiting) return;
+  const pick = sources.find((s) => s.voice && s.playing) || sources.find((s) => s.voice);
+  if (pick) selected = pick.name;
+}
+
+let modelReady = state.engine_ready;
+let waiting = state.waiting || null;
+
+function renderListen() {
+  const btn = $("listen");
+  const note = $("listen-note");
+  renderSteps();
+  if (listening?.on || waiting) {
+    btn.textContent = "Остановить";
+    btn.classList.add("stop");
+    btn.disabled = false;
+    note.classList.remove("warn");
+    note.textContent = listening?.on
+      ? `Слушаю: ${listening.name}`
+      : `${waiting} закрыт. Субтитры включатся сами, когда он снова запустится.`;
+    return;
+  }
+  btn.textContent = "Слушать";
+  btn.classList.remove("stop");
+  btn.disabled = !modelReady || !currentRow();
+  if (!note.classList.contains("warn")) {
+    note.textContent = !modelReady ? "Сначала нужна модель распознавания, она справа." : currentRow() ? "" : "Выберите, кого слушать.";
+  }
+}
+
+$("listen").addEventListener("click", async () => {
+  const note = $("listen-note");
+  note.classList.remove("warn");
+  if (listening?.on || waiting) {
+    await invoke("stop_listening");
+    return;
+  }
+  const row = currentRow();
+  if (!row) return;
+  try {
+    await invoke("start_listening", { target: row.target, name: row.name, exe: row.exe ?? null });
+  } catch (e) {
+    note.classList.add("warn");
+    note.textContent = String(e);
+    renderListen();
+  }
+});
+
+$("refresh").addEventListener("click", refreshSources);
+await refreshSources();
+// Keep the "есть звук" marks honest while the user is choosing.
+setInterval(() => {
+  if (!listening?.on && document.visibilityState === "visible") refreshSources();
+}, 3000);
+
+/* ───────── level meter ───────── */
+
+const TICKS = 22;
+const meter = $("meter");
+meter.replaceChildren(...Array.from({ length: TICKS }, () => document.createElement("i")));
+let meterDecay = 0;
+// Listening but nothing audible for a while: say so, calmly, instead of
+// leaving the person to wonder whether Hark is broken.
+let heardSomething = false;
+let silentSince = performance.now();
+setInterval(() => {
+  const note = $("listen-note");
+  if (!listening?.on || heardSomething || note.classList.contains("warn")) return;
+  if (performance.now() - silentSince > 20000) {
+    note.textContent = `Слушаю: ${listening.name}. Звука пока нет: субтитры появятся, когда кто-нибудь заговорит.`;
+  }
+}, 2000);
+
+function showLevel(level) {
+  if (level > 0.02 && listening?.on && !heardSomething) {
+    heardSomething = true;
+    renderListen();
+  }
+  // Speech peaks sit low on a linear scale; a square root spreads them out.
+  const lit = Math.round(Math.sqrt(Math.min(1, level * 1.6)) * TICKS);
+  meter.childNodes.forEach((t, i) => {
+    t.classList.toggle("lit", i < lit);
+    t.classList.toggle("hot", i < lit && i >= TICKS - 4);
+  });
+  clearTimeout(meterDecay);
+  meterDecay = setTimeout(() => showLevel(0), 400);
+}
+
+/* ───────── overlay window ───────── */
+
+$("overlay-visible").checked = state.settings.overlay_visible ?? true;
+$("overlay-visible").addEventListener("change", (e) => invoke("set_overlay_visible", { visible: e.target.checked }));
+let editing = state.edit;
+function renderEdit() {
+  $("edit").classList.toggle("on", editing);
+  $("edit").textContent = editing ? "Готово" : "Переместить";
+}
+renderEdit();
+$("edit").addEventListener("click", () => invoke("set_edit", { on: !editing }));
+$("reset-pos").addEventListener("click", async () => {
+  await invoke("reset_overlay");
+  overlayRect = (await invoke("get_state")).settings.overlay_rect || overlayRect;
+  layoutPreview();
+});
+$("demo").addEventListener("click", () => invoke("demo"));
+
+/* ───────── models ───────── */
+
+const TICK_COUNT = 30;
+const ticks = $("model-ticks");
+
+function renderModel(stage, info = {}) {
+  const box = $("model");
+  const title = $("model-title");
+  const body = $("model-body");
+  const btn = $("model-get");
+  box.classList.remove("error");
+  if (stage === "done") {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  if (stage === "missing") {
+    title.textContent = lang === "en" ? "Нужна модель для английской речи" : "Нужна модель распознавания речи";
+    body.textContent = `Один раз скачаем ${lang === "en" ? "100" : "165"} МБ. Дальше всё работает без интернета, голоса не уходят с компьютера.`;
+    btn.hidden = false;
+    btn.disabled = false;
+    btn.textContent = "Скачать";
+    ticks.replaceChildren();
+  } else if (stage === "download") {
+    const part = info.total ? info.done / info.total : 0;
+    title.textContent = "Скачиваю модель";
+    body.textContent = info.total
+      ? `${Math.round(info.done / 1048576)} из ${Math.round(info.total / 1048576)} МБ. Можно пока настроить вид субтитров.`
+      : "Соединяюсь…";
+    btn.hidden = true;
+    if (ticks.childNodes.length !== TICK_COUNT) {
+      ticks.replaceChildren(...Array.from({ length: TICK_COUNT }, () => document.createElement("i")));
+    }
+    ticks.classList.remove("busy");
+    ticks.childNodes.forEach((t, i) => t.classList.toggle("lit", i < Math.round(part * TICK_COUNT)));
+  } else if (stage === "unpack" || stage === "loading") {
+    title.textContent = stage === "unpack" ? "Распаковываю модель" : "Загружаю модель в память";
+    body.textContent = "Это несколько секунд.";
+    btn.hidden = true;
+    if (ticks.childNodes.length !== TICK_COUNT) {
+      ticks.replaceChildren(...Array.from({ length: TICK_COUNT }, () => document.createElement("i")));
+    }
+    ticks.childNodes.forEach((t, i) => {
+      t.classList.remove("lit");
+      t.style.animationDelay = `${i * 36}ms`;
+    });
+    ticks.classList.add("busy");
+  } else if (stage === "error") {
+    box.classList.add("error");
+    title.textContent = "Не получилось подготовить модель";
+    body.textContent = `${info.message || "Неизвестная ошибка"}. Проверьте интернет и попробуйте ещё раз.`;
+    btn.hidden = false;
+    btn.disabled = false;
+    btn.textContent = "Попробовать снова";
+    ticks.replaceChildren();
+  }
+}
+
+$("model-get").addEventListener("click", () => {
+  renderModel("download", { done: 0, total: 0 });
+  invoke("download_models");
+});
+
+if (state.engine_ready) renderModel("done");
+else if (state.downloading) renderModel("download", { done: 0, total: 0 });
+else if (state.models_ready) renderModel("loading");
+else {
+  // A first start should need no click: fetch the model straight away.
+  renderModel("download", { done: 0, total: 0 });
+  invoke("download_models");
+}
+
+await listen("models", (e) => {
+  const p = e.payload;
+  if (p.stage === "missing") {
+    renderModel("download", { done: 0, total: 0 });
+    invoke("download_models");
+  } else {
+    renderModel(p.stage, p);
+  }
+  modelStage = p.stage;
+  renderSteps();
+  if (p.stage === "done") {
+    modelReady = true;
+    renderListen();
+  }
+});
+
+/* ───────── live events ───────── */
+
+const log = $("log");
+const logItems = new Map();
+
+function logCaption({ id, text, final }) {
+  let li = logItems.get(id);
+  if (final && !text) {
+    li?.remove();
+    logItems.delete(id);
+  } else {
+    if (!li) {
+      li = document.createElement("li");
+      const time = document.createElement("time");
+      time.textContent = new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      li.append(time, document.createElement("span"));
+      logItems.set(id, li);
+      const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+      log.append(li);
+      if (nearBottom) log.scrollTop = log.scrollHeight;
+    }
+    li.lastChild.textContent = text;
+    li.classList.toggle("draft", !final);
+  }
+  $("log-empty").hidden = logItems.size > 0;
+}
+
+$("log-clear").addEventListener("click", () => {
+  log.replaceChildren();
+  logItems.clear();
+  $("log-empty").hidden = false;
+});
+
+await listen("language", (e) => {
+  lang = e.payload;
+  renderLang();
+  previewSigns.clear();
+  previewSigns.set({ lang });
+  modelReady = false;
+  renderListen();
+});
+
+await listen("caption", (e) => {
+  preview.push(e.payload);
+  if (e.payload.final && e.payload.text && settings.mode !== "text") previewSigns.say(e.payload.text, e.payload.id);
+  logCaption(e.payload);
+});
+await listen("level", (e) => showLevel(e.payload));
+await listen("listen", (e) => {
+  listening = e.payload.on ? e.payload : null;
+  waiting = e.payload.waiting || null;
+  if (listening) {
+    selected = listening.name;
+    everListened = true;
+    saveFlags();
+  }
+  heardSomething = false;
+  silentSince = performance.now();
+  const note = $("listen-note");
+  if (!e.payload.on && e.payload.reason) {
+    note.classList.add("warn");
+    note.textContent = e.payload.reason;
+  } else {
+    note.classList.remove("warn");
+  }
+  renderListen();
+  if (!listening) refreshSources();
+});
+await listen("edit", (e) => {
+  editing = e.payload;
+  renderEdit();
+  if (!editing) invoke("get_state").then((s) => {
+    overlayRect = s.settings.overlay_rect || overlayRect;
+    layoutPreview();
+  });
+});
+await listen("overlay-visible", (e) => {
+  $("overlay-visible").checked = e.payload;
+});
+
+/* ───────── first steps, autostart, old Windows ───────── */
+
+function renderSteps() {
+  const box = $("onboarding");
+  if (!box) return;
+  box.hidden = !!flags.onboarded;
+  const set = (step, done) => box.querySelector(`[data-step="${step}"]`)?.classList.toggle("done", done);
+  set("model", modelReady || modelStage === "done");
+  set("source", !!currentRow() || !!listening?.on);
+  set("listen", !!listening?.on || everListened);
+  const text = $("step-model-text");
+  if (text) text.textContent = modelReady ? "готова" : "скачивается сама, один раз";
+}
+
+$("onboarding-close").addEventListener("click", () => {
+  flags.onboarded = true;
+  saveFlags();
+  renderSteps();
+});
+
+$("autostart").checked = state.autostart;
+$("autostart").addEventListener("change", async (e) => {
+  try {
+    await invoke("set_autostart", { on: e.target.checked });
+  } catch {
+    e.target.checked = !e.target.checked;
+  }
+});
+
+$("old-windows").hidden = state.windows_ok;
+renderSteps();
+renderListen();
+
+/* ───────── updates from madgodinc.net ───────── */
+
+getVersion().then((v) => ($("app-version").textContent = `Hark ${v}`)).catch(() => {});
+
+let pendingUpdate = null;
+
+async function installUpdate(update) {
+  const text = $("update-text");
+  const btn = $("update-go");
+  btn.disabled = true;
+  let got = 0;
+  let total = 0;
+  try {
+    await update.downloadAndInstall((event) => {
+      if (event.event === "Started") total = event.data.contentLength || 0;
+      if (event.event === "Progress") {
+        got += event.data.chunkLength;
+        text.textContent = total ? `Скачиваю обновление: ${Math.round((got / total) * 100)}%` : "Скачиваю обновление…";
+      }
+      if (event.event === "Finished") text.textContent = "Устанавливаю, Hark перезапустится сам…";
+    });
+    await relaunch();
+  } catch (e) {
+    text.textContent = `Не получилось обновиться: ${e}. Попробуйте позже.`;
+    btn.disabled = false;
+  }
+}
+
+async function checkForUpdate() {
+  if (pendingUpdate) return;
+  try {
+    const update = await check();
+    if (!update) return;
+    pendingUpdate = update;
+    // Started with Windows: the person is not playing yet, update right away.
+    if (state.started_hidden && !listening?.on) {
+      installUpdate(update);
+      return;
+    }
+    $("update-text").textContent = `Вышла новая версия Hark ${update.version}`;
+    $("update").hidden = false;
+  } catch {
+    // Offline or the site is down: try again later, never bother the person.
+  }
+}
+
+$("update-go").addEventListener("click", () => pendingUpdate && installUpdate(pendingUpdate));
+setTimeout(checkForUpdate, 8000);
+setInterval(checkForUpdate, 6 * 60 * 60 * 1000);

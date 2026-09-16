@@ -1,0 +1,238 @@
+/* Caption look, shared by the overlay and the settings preview. The values
+   come from applyLook() as custom properties. */
+
+.cap-root {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 0.22em;
+  font-family: var(--cap-font);
+  font-size: var(--cap-size);
+  font-weight: var(--cap-weight);
+  font-optical-sizing: auto;
+  color: var(--cap-color);
+  text-align: var(--cap-align);
+  text-transform: var(--cap-transform);
+  line-height: 1.28;
+  overflow-wrap: anywhere;
+}
+
+.cap-line {
+  margin: 0;
+  transition:
+    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 260ms ease-out;
+}
+
+.cap-line > span {
+  background: var(--cap-bg);
+  padding: 0.06em 0.36em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  text-shadow: var(--cap-shadow);
+}
+
+/* Older phrases step back so the eye lands on the newest one. */
+.cap-line:not(:last-child) {
+  opacity: 0.78;
+}
+
+.cap-line.draft span {
+  color: color-mix(in oklab, var(--cap-color) 74%, transparent);
+}
+
+/* A thin caret says "still being spoken". */
+.cap-line.draft span::after {
+  content: "";
+  display: inline-block;
+  width: 0.09em;
+  height: 0.95em;
+  margin-left: 0.14em;
+  vertical-align: -0.12em;
+  background: currentColor;
+  animation: cap-caret 900ms steps(2, jump-none) infinite;
+}
+
+.cap-line.entering {
+  opacity: 0;
+  transform: translateY(0.45em);
+}
+
+.cap-line.leaving {
+  opacity: 0;
+  filter: blur(6px);
+}
+
+@keyframes cap-caret {
+  to { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cap-line { transition: opacity 120ms linear; }
+  .cap-line.entering { transform: none; }
+  .cap-line.leaving { filter: none; }
+  .cap-line.draft span::after { animation: none; }
+}
+
+/* ── text and signs side by side ── */
+
+.hark-view {
+  display: flex;
+  gap: 0.6em;
+  height: 100%;
+  min-height: 0;
+  font-size: var(--cap-size);
+}
+
+.hark-view .cap-root {
+  flex: 1;
+  min-width: 0;
+  font-size: 1em;
+}
+
+.sign-panel {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  aspect-ratio: 0.82;
+  flex: none;
+  transition: opacity 500ms ease-out;
+}
+
+.sign-panel canvas {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  background: radial-gradient(closest-side, var(--cap-bg), transparent);
+}
+
+.sign-word {
+  margin: 0;
+  min-height: 1.3em;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  font-family: var(--cap-font);
+  font-weight: var(--cap-weight);
+  font-size: 0.72em;
+  line-height: 1.3;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cap-color);
+  text-shadow: var(--cap-shadow);
+}
+
+.sign-word:not(:empty) {
+  background: var(--cap-bg);
+  padding: 0 0.3em;
+}
+
+.sign-word .done {
+  opacity: 0.5;
+}
+
+.sign-word b {
+  color: #e6ff4a;
+}
+
+.sign-panel.idle {
+  opacity: 0.3;
+}
+
+/* The word the hand is showing right now. */
+.cap-line .w {
+  transition: color 160ms ease-out, box-shadow 160ms ease-out;
+}
+
+.cap-line .w.signing {
+  color: #e6ff4a;
+  box-shadow: inset 0 -0.09em 0 #e6ff4a;
+}
+
+/* Strip style: a still hand per letter of the word. */
+.sign-strip {
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0.08em;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.sign-strip figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: none;
+  transition: opacity 200ms ease-out, transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.sign-strip img {
+  height: calc(var(--cap-size) * 2.1);
+  aspect-ratio: 220 / 240;
+  background: radial-gradient(closest-side, var(--cap-bg), transparent);
+}
+
+.sign-strip figcaption {
+  font-family: var(--cap-font);
+  font-weight: var(--cap-weight);
+  font-size: 0.6em;
+  line-height: 1.2;
+  padding: 0 0.25em;
+  color: var(--cap-color);
+  background: var(--cap-bg);
+  text-shadow: var(--cap-shadow);
+  text-transform: uppercase;
+}
+
+.sign-strip figure.moves figcaption::after {
+  content: "\2193";
+  margin-left: 0.15em;
+  opacity: 0.7;
+}
+
+.sign-strip figure.done {
+  opacity: 0.45;
+}
+
+.sign-strip figure.now {
+  transform: translateY(-0.12em) scale(1.08);
+}
+
+.sign-strip figure.now figcaption {
+  color: #e6ff4a;
+}
+
+.hark-view[data-style="strip"] .sign-panel {
+  display: none !important;
+}
+
+.hark-view[data-style="strip"][data-mode="signs"] .sign-strip {
+  display: flex;
+  margin: auto;
+}
+
+.hark-view[data-style="strip"][data-mode="both"] {
+  flex-direction: column;
+}
+
+.hark-view[data-style="strip"][data-mode="both"] .sign-strip {
+  display: flex;
+  flex: none;
+}
+
+.hark-view[data-mode="signs"] .cap-root {
+  display: none;
+}
+
+.hark-view[data-mode="signs"] .sign-panel {
+  display: flex;
+  margin: 0 auto;
+}
+
+.hark-view[data-mode="both"] .sign-panel {
+  display: flex;
+}

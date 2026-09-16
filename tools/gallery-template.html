@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hark · проверка жестов</title>
+<style>
+@font-face { font-family: "Onest"; font-weight: 100 900; font-display: swap; src: url(data:font/woff2;base64,/*FONT_ONEST_CYR*/) format("woff2"); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: "Onest"; font-weight: 100 900; font-display: swap; src: url(data:font/woff2;base64,/*FONT_ONEST_LAT*/) format("woff2"); unicode-range: U+0000-00FF, U+2000-206F, U+2190-21FF; }
+@font-face { font-family: "Unbounded"; font-weight: 200 900; font-display: swap; src: url(data:font/woff2;base64,/*FONT_UNB_LAT*/) format("woff2"); }
+
+:root {
+  --bg: oklch(0.13 0 0);
+  --panel: oklch(0.165 0.005 118);
+  --raise: oklch(0.21 0.007 118);
+  --line: oklch(0.28 0.008 118);
+  --ink: oklch(0.96 0.006 118);
+  --ink-2: oklch(0.78 0.012 118);
+  --ink-3: oklch(0.64 0.012 118);
+  --lime: oklch(0.9 0.19 118);
+  --lime-ink: oklch(0.18 0.035 118);
+  --lime-dim: oklch(0.9 0.19 118 / 0.14);
+  --bad: oklch(0.7 0.18 30);
+  --bad-dim: oklch(0.7 0.18 30 / 0.16);
+  --maybe: oklch(0.84 0.14 80);
+  --maybe-dim: oklch(0.84 0.14 80 / 0.15);
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --gutter: clamp(16px, 4vw, 40px);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 16px/1.5 "Onest", system-ui, sans-serif;
+  padding-bottom: calc(40px + env(safe-area-inset-bottom));
+}
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--lime); outline-offset: 2px; }
+
+header {
+  padding: clamp(24px, 5vw, 56px) var(--gutter) 20px;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+.wordmark { font: 700 20px/1 "Unbounded", sans-serif; color: var(--lime); letter-spacing: -0.02em; }
+h1 { margin: 14px 0 10px; font-size: clamp(28px, 5.4vw, 48px); line-height: 1.08; font-weight: 700; letter-spacing: -0.02em; text-wrap: balance; }
+.intro { margin: 0; color: var(--ink-2); max-width: 62ch; font-size: clamp(15px, 2vw, 17px); }
+.intro b { color: var(--ink); font-weight: 600; }
+
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: color-mix(in oklab, var(--bg) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.tabs {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs button {
+  flex: none;
+  border: 0;
+  background: none;
+  padding: 16px 14px 14px;
+  cursor: pointer;
+  color: var(--ink-2);
+  font-weight: 550;
+  border-bottom: 2px solid transparent;
+  transition: color 160ms var(--ease), border-color 160ms var(--ease);
+}
+.tabs button:hover { color: var(--ink); }
+.tabs button:focus-visible { outline-offset: -6px; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--lime); }
+.tabs small { color: var(--ink-3); font-weight: 400; margin-left: 6px; font-variant-numeric: tabular-nums; }
+
+main { max-width: 1180px; margin: 0 auto; padding: 0 var(--gutter); }
+.section-note { color: var(--ink-3); margin: 18px 0 4px; max-width: 70ch; font-size: 14.5px; }
+
+.list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  column-gap: 12px;
+  border-top: 1px solid var(--line);
+}
+/* No boxes: a hand, its letter over its corner, hairlines between rows. */
+.row {
+  position: relative;
+  padding: 10px 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+.glyph { position: absolute; left: 0; top: 10px; z-index: 1; display: flex; align-items: baseline; gap: 8px; pointer-events: none; }
+.num { color: var(--ink-3); font-size: 13px; font-variant-numeric: tabular-nums; }
+.letter { font-size: 58px; line-height: 0.9; font-weight: 700; letter-spacing: -0.03em; order: -1; }
+.row.word .letter { font-size: 24px; line-height: 1.1; text-transform: uppercase; letter-spacing: 0; }
+
+.hand {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  background: radial-gradient(closest-side, oklch(0.22 0.01 118), transparent);
+}
+.hand img { width: 100%; height: 100%; display: block; }
+.motion-tag {
+  position: absolute;
+  right: 0; top: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 8px;
+  color: var(--lime-ink);
+  background: var(--lime);
+  clip-path: polygon(6px 0, 100% 0, 100% 100%, 0 100%);
+}
+.judge:empty { display: none; }
+.motion { margin: 4px 0 0; color: var(--ink-2); font-size: 13.5px; line-height: 1.4; text-wrap: pretty; }
+
+.row.word { grid-column: span 2; display: grid; grid-template-columns: 1fr 1fr; align-items: center; column-gap: 12px; }
+.row.word .glyph { position: static; grid-column: 2; grid-row: 1; flex-direction: column; align-items: flex-start; gap: 2px; }
+.row.word .hand { grid-column: 1; grid-row: 1 / span 2; }
+.row.word .judge { grid-column: 2; grid-row: 2; align-self: start; }
+
+@media (max-width: 520px) {
+  .list { grid-template-columns: 1fr 1fr; }
+  .letter { font-size: 44px; }
+  .row.word .letter { font-size: 20px; }
+  .motion { font-size: 12.5px; }
+  .motion-tag { font-size: 10.5px; padding: 2px 6px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 1ms !important; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="wordmark">hark</div>
+  <h1>Жесты Hark</h1>
+  <p class="intro">Рука из программы <b>Hark</b>, которая показывает речь жестами. Здесь все буквы и первые слова. Если какой-то жест показан неправильно, напишите номер и что не так.</p>
+</header>
+
+<nav><div class="tabs" role="tablist" id="tabs"></div></nav>
+
+<main id="main"></main>
+
+
+<script>
+const DATA = /*DATA*/null;
+const SECTIONS = [
+  { key: "ru", title: "Русский дактиль", note: "Буквы показаны так, как их видит собеседник: правая рука, ладонь к вам. Если у буквы есть движение, картинка анимирована, а движение описано словами." },
+  { key: "en", title: "Американский (ASL)", note: "Американская дактильная азбука. " },
+  { key: "words", title: "Слова", note: "Черновик. Жесты целых слов, собранные по описаниям из интернета. У модели нет тела и лица, поэтому жесты у лица показаны только движением." },
+];
+const tabs = document.getElementById("tabs");
+const main = document.getElementById("main");
+let current = "ru";
+const animations = [];
+
+function renderTabs() {
+  tabs.replaceChildren(...SECTIONS.map((s) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(s.key === current));
+    b.innerHTML = `${s.title}<small>${DATA[s.key].length}</small>`;
+    b.onclick = () => { current = s.key; renderTabs(); renderSection(); window.scrollTo({ top: document.querySelector("nav").offsetTop, behavior: "smooth" }); };
+    return b;
+  }));
+}
+
+function renderSection() {
+  animations.length = 0;
+  const s = SECTIONS.find((x) => x.key === current);
+  const note = document.createElement("p");
+  note.className = "section-note";
+  note.textContent = s.note;
+  const list = document.createElement("ol");
+  list.className = "list";
+  DATA[s.key].forEach((item, i) => list.append(renderRow(s.key, item, i)));
+  main.replaceChildren(note, list);
+}
+
+function renderRow(section, item, i) {
+  const li = document.createElement("li");
+  li.className = "row" + (section === "words" ? " word" : "");
+
+  const glyph = document.createElement("div");
+  glyph.className = "glyph";
+  glyph.innerHTML = `<span class="num">${i + 1}</span><span class="letter"></span>`;
+  glyph.querySelector(".letter").textContent = item.letter;
+
+  const hand = document.createElement("div");
+  hand.className = "hand";
+  const img = document.createElement("img");
+  img.alt = `Жест: ${item.letter}`;
+  img.src = item.frames[0];
+  hand.append(img);
+  if (item.frames.length > 1) {
+    const tag = document.createElement("span");
+    tag.className = "motion-tag";
+    tag.textContent = "с движением";
+    hand.append(tag);
+    animations.push({ img, frames: item.frames });
+  }
+
+  const judge = document.createElement("div");
+  judge.className = "judge";
+  if (item.motion) {
+    const p = document.createElement("p");
+    p.className = "motion";
+    p.textContent = item.motion;
+    judge.append(p);
+  }
+
+  li.append(glyph, hand, judge);
+  return li;
+}
+
+// Movement letters loop: play the frames, hold the last one, start again.
+let tick = 0;
+setInterval(() => {
+  tick++;
+  for (const a of animations) {
+    const n = a.frames.length;
+    const cycle = n + 8; // 8 ticks of hold
+    const f = tick % cycle;
+    a.img.src = a.frames[Math.min(n - 1, f)];
+  }
+}, 85);
+
+renderTabs();
+renderSection();
+</script>
+</body>
+</html>

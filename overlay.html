@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Hark · субтитры</title>
+    <link rel="stylesheet" href="/src/captions.css" />
+    <link rel="stylesheet" href="/src/overlay.css" />
+  </head>
+  <body>
+    <div id="frame" data-tauri-drag-region>
+      <div class="hark-view" id="view">
+        <div id="captions" class="cap-root"></div>
+        <div class="sign-panel idle"><canvas id="hand"></canvas><p class="sign-word" id="spelled"></p></div>
+        <div class="sign-strip" id="strip"></div>
+      </div>
+      <div id="edit-bar">
+        <span>Тяните окно, чтобы переместить. Угол меняет размер.</span>
+        <button id="done" type="button">Готово</button>
+      </div>
+      <i class="grip" data-dir="NorthWest"></i><i class="grip" data-dir="NorthEast"></i>
+      <i class="grip" data-dir="SouthWest"></i><i class="grip" data-dir="SouthEast"></i>
+    </div>
+    <script type="module" src="/src/overlay.js"></script>
+  </body>
+</html>

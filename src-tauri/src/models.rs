@@ -1,0 +1,163 @@
+//! The speech models live outside the installer and are fetched on first use of
+//! a language, from the sherpa-onnx releases on GitHub.
+//!
+//! Russian: GigaAM v3 transducer with punctuation, 162 MB download.
+//! English: Parakeet TDT-CTC 110M, 99 MB download, also punctuated.
+//! Both reuse one Silero VAD file.
+
+use serde::{Deserialize, Serialize};
+use std::fs::{self, File};
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+
+const RELEASES: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Lang {
+    Ru,
+    En,
+}
+
+impl Lang {
+    pub fn parse(s: &str) -> Lang {
+        if s == "en" { Lang::En } else { Lang::Ru }
+    }
+
+    /// Archive name (also the folder it unpacks to) and the files we keep.
+    fn archive(self) -> (&'static str, &'static [&'static str]) {
+        match self {
+            Lang::Ru => (
+                "sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16",
+                &["encoder.int8.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"],
+            ),
+            Lang::En => ("sherpa-onnx-nemo-parakeet_tdt_ctc_110m-en-36000-int8", &["model.int8.onnx", "tokens.txt"]),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum Model {
+    /// GigaAM: encoder, decoder, joiner.
+    Transducer { encoder: String, decoder: String, joiner: String },
+    /// Parakeet CTC head: one file.
+    NemoCtc { model: String },
+}
+
+#[derive(Clone, Debug)]
+pub struct ModelPaths {
+    pub vad: String,
+    pub tokens: String,
+    pub model: Model,
+}
+
+pub fn paths(dir: &Path, lang: Lang) -> ModelPaths {
+    let (name, _) = lang.archive();
+    let g = dir.join(name);
+    let s = |p: PathBuf| p.to_string_lossy().to_string();
+    ModelPaths {
+        vad: s(dir.join("silero_vad.onnx")),
+        tokens: s(g.join("tokens.txt")),
+        model: match lang {
+            Lang::Ru => Model::Transducer {
+                encoder: s(g.join("encoder.int8.onnx")),
+                decoder: s(g.join("decoder.onnx")),
+                joiner: s(g.join("joiner.onnx")),
+            },
+            Lang::En => Model::NemoCtc { model: s(g.join("model.int8.onnx")) },
+        },
+    }
+}
+
+pub fn ready(dir: &Path, lang: Lang) -> bool {
+    let (name, files) = lang.archive();
+    dir.join("silero_vad.onnx").is_file() && files.iter().all(|f| dir.join(name).join(f).is_file())
+}
+
+#[derive(Serialize, Clone)]
+pub struct Progress {
+    /// "download", "unpack", "done" or "error"
+    pub stage: &'static str,
+    pub done: u64,
+    pub total: u64,
+    pub message: String,
+}
+
+pub fn download(dir: &Path, lang: Lang, report: impl Fn(Progress)) -> anyhow::Result<()> {
+    fs::create_dir_all(dir)?;
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("mgi-hark")
+        .timeout(None)
+        .build()?;
+
+    if !dir.join("silero_vad.onnx").is_file() {
+        fetch(&client, &format!("{RELEASES}/silero_vad.onnx"), &dir.join("silero_vad.onnx"), |_, _| {})?;
+    }
+
+    let (name, files) = lang.archive();
+    if !files.iter().all(|f| dir.join(name).join(f).is_file()) {
+        let archive = dir.join(format!("{name}.tar.bz2"));
+        fetch(&client, &format!("{RELEASES}/{name}.tar.bz2"), &archive, |done, total| {
+            report(Progress { stage: "download", done, total, message: String::new() })
+        })?;
+
+        report(Progress { stage: "unpack", done: 0, total: 0, message: String::new() });
+        let staging = dir.join(format!("{name}.unpacking"));
+        let _ = fs::remove_dir_all(&staging);
+        fs::create_dir_all(&staging)?;
+        let mut tar = tar::Archive::new(bzip2::read::BzDecoder::new(File::open(&archive)?));
+        for entry in tar.entries()? {
+            let mut entry = entry?;
+            let path = entry.path()?.into_owned();
+            let Some(file) = path.file_name().and_then(|n| n.to_str()) else { continue };
+            // Test recordings share file names across folders; keep only top-level model files.
+            if path.components().count() == 2 && (files.contains(&file) || file == "LICENSE") {
+                entry.unpack(staging.join(file))?;
+            }
+        }
+        let _ = fs::remove_dir_all(dir.join(name));
+        fs::rename(&staging, dir.join(name))?;
+        let _ = fs::remove_file(&archive);
+    }
+
+    if !ready(dir, lang) {
+        anyhow::bail!("файлы модели не появились после распаковки");
+    }
+    Ok(())
+}
+
+/// Downloads to a .part file first so a broken download never looks finished.
+fn fetch(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    to: &Path,
+    progress: impl Fn(u64, u64),
+) -> anyhow::Result<()> {
+    let mut response = client.get(url).send()?.error_for_status()?;
+    let total = response.content_length().unwrap_or(0);
+    let part = to.with_extension("part");
+    let mut file = File::create(&part)?;
+    let mut buf = vec![0u8; 1 << 16];
+    let mut done = 0u64;
+    let mut reported = 0u64;
+    loop {
+        let n = response.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        file.write_all(&buf[..n])?;
+        done += n as u64;
+        if done - reported >= 1 << 20 {
+            progress(done, total);
+            reported = done;
+        }
+    }
+    file.flush()?;
+    drop(file);
+    if total > 0 && done != total {
+        anyhow::bail!("загрузка оборвалась: {done} из {total} байт");
+    }
+    progress(done, total);
+    fs::rename(part, to)?;
+    Ok(())
+}

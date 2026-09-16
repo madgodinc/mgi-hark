@@ -1,0 +1,30 @@
+{
+  "name": "mgi-hark",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@fontsource-variable/nunito": "^5",
+    "@fontsource-variable/onest": "^5",
+    "@fontsource-variable/rubik": "^5",
+    "@fontsource-variable/unbounded": "^5",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-global-shortcut": "^2",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.11.0",
+    "three": "^0.186.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "playwright-core": "^1.63.0",
+    "vite": "^6"
+  },
+  "license": "UNLICENSED",
+  "author": "MGI",
+  "description": "Live captions for voice chat for people who cannot hear it"
+}

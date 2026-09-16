@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Hark</title>
+    <link rel="stylesheet" href="/src/captions.css" />
+    <link rel="stylesheet" href="/src/app.css" />
+  </head>
+  <body>
+    <header class="titlebar" data-tauri-drag-region>
+      <div class="brand" data-tauri-drag-region>
+        <span class="wordmark">hark</span>
+        <span class="tagline">субтитры для голосового чата</span>
+      </div>
+      <div class="win-buttons">
+        <button type="button" id="win-min" aria-label="Свернуть"><svg viewBox="0 0 12 12"><path d="M2 6h8" /></svg></button>
+        <button type="button" id="win-close" class="close" aria-label="Закрыть"><svg viewBox="0 0 12 12"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" /></svg></button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="controls">
+        <section class="group">
+          <h2>Язык</h2>
+          <div class="field">
+            <span class="label">Язык речи</span>
+            <div class="seg" id="lang">
+              <button type="button" data-value="ru">Русский</button>
+              <button type="button" data-value="en">English</button>
+            </div>
+          </div>
+          <!-- Signs are paused until the sign language society (ВОГ) sends its
+               materials. Remove data-signs-hidden to bring the controls back. -->
+          <div class="field" data-signs-hidden>
+            <span class="label">Показывать</span>
+            <div class="seg" data-key="mode">
+              <button type="button" data-value="text">Текст</button>
+              <button type="button" data-value="signs">Жесты</button>
+              <button type="button" data-value="both">Оба</button>
+            </div>
+          </div>
+          <div class="field" data-signs-hidden>
+            <span class="label">Жесты</span>
+            <div class="seg" data-key="signStyle">
+              <button type="button" data-value="hand">Одна рука</button>
+              <button type="button" data-value="strip">Лентой</button>
+            </div>
+          </div>
+          <label class="field range" id="speed-field" data-signs-hidden>
+            <span class="label">Скорость жестов</span>
+            <input type="range" data-key="signSpeed" min="0.6" max="4" step="0.1" />
+            <output data-for="signSpeed" data-unit=" /с"></output>
+          </label>
+          <form class="try" id="try" data-signs-hidden>
+            <input type="text" id="try-text" placeholder="Напишите слово" autocomplete="off" spellcheck="false" />
+            <button type="submit" class="secondary">Показать жестами</button>
+          </form>
+          <p class="note" data-signs-hidden>Слова, для которых есть свой жест, показываются одним жестом. Остальные показываются по буквам, дактилем.</p>
+        </section>
+
+        <section class="group" id="source-group">
+          <div class="group-head">
+            <h2>Кого слушать</h2>
+            <button type="button" class="text-btn" id="refresh">Обновить список</button>
+          </div>
+          <ul class="sources" id="sources" role="listbox" aria-label="Программы со звуком"></ul>
+          <div class="listen-row">
+            <button type="button" class="primary" id="listen" disabled>Слушать</button>
+            <div class="meter" id="meter" aria-hidden="true"></div>
+          </div>
+          <p class="note" id="listen-note" role="status"></p>
+        </section>
+
+        <section class="group">
+          <h2>Текст</h2>
+          <div class="field">
+            <span class="label">Шрифт</span>
+            <div class="seg" data-key="font">
+              <button type="button" data-value="onest" style="font-family: 'Onest Variable'">Onest</button>
+              <button type="button" data-value="nunito" style="font-family: 'Nunito Variable'">Nunito</button>
+              <button type="button" data-value="rubik" style="font-family: 'Rubik Variable'">Rubik</button>
+            </div>
+          </div>
+          <label class="field range">
+            <span class="label">Размер</span>
+            <input type="range" data-key="size" min="16" max="96" step="1" />
+            <output data-for="size" data-unit=" px"></output>
+          </label>
+          <label class="field range">
+            <span class="label">Жирность</span>
+            <input type="range" data-key="weight" min="400" max="800" step="100" />
+            <output data-for="weight"></output>
+          </label>
+          <div class="field">
+            <span class="label">Цвет</span>
+            <div class="swatches" data-key="color">
+              <button type="button" data-value="#ffffff" style="--sw: #ffffff" aria-label="Белый"></button>
+              <button type="button" data-value="#fff27a" style="--sw: #fff27a" aria-label="Жёлтый"></button>
+              <button type="button" data-value="#8ff0ff" style="--sw: #8ff0ff" aria-label="Голубой"></button>
+              <button type="button" data-value="#b9ff8a" style="--sw: #b9ff8a" aria-label="Зелёный"></button>
+              <label class="custom" aria-label="Свой цвет"><input type="color" data-key="color" /></label>
+            </div>
+          </div>
+          <label class="field range">
+            <span class="label">Обводка</span>
+            <input type="range" data-key="outline" min="0" max="1" step="0.05" />
+            <output data-for="outline" data-percent></output>
+          </label>
+          <label class="field toggle">
+            <span class="label">ВСЕ БУКВЫ ЗАГЛАВНЫЕ</span>
+            <input type="checkbox" data-key="caps" />
+          </label>
+        </section>
+
+        <section class="group">
+          <h2>Подложка под текстом</h2>
+          <div class="field">
+            <span class="label">Цвет</span>
+            <div class="swatches" data-key="bgColor">
+              <button type="button" data-value="#000000" style="--sw: #000000" aria-label="Чёрный"></button>
+              <button type="button" data-value="#101b3d" style="--sw: #101b3d" aria-label="Тёмно-синий"></button>
+              <button type="button" data-value="#2b1030" style="--sw: #2b1030" aria-label="Тёмно-вишнёвый"></button>
+              <button type="button" data-value="#ffffff" style="--sw: #ffffff" aria-label="Белый"></button>
+              <label class="custom" aria-label="Свой цвет"><input type="color" data-key="bgColor" /></label>
+            </div>
+          </div>
+          <label class="field range">
+            <span class="label">Плотность</span>
+            <input type="range" data-key="bgOpacity" min="0" max="1" step="0.05" />
+            <output data-for="bgOpacity" data-percent></output>
+          </label>
+        </section>
+
+        <section class="group">
+          <h2>Как показывать</h2>
+          <div class="field">
+            <span class="label">Строк на экране</span>
+            <div class="seg" data-key="lines" data-number>
+              <button type="button" data-value="1">1</button>
+              <button type="button" data-value="2">2</button>
+              <button type="button" data-value="3">3</button>
+              <button type="button" data-value="4">4</button>
+              <button type="button" data-value="6">6</button>
+            </div>
+          </div>
+          <label class="field range">
+            <span class="label">Убирать через</span>
+            <input type="range" data-key="fade" min="0" max="30" step="1" />
+            <output data-for="fade" data-unit=" с" data-zero="никогда"></output>
+          </label>
+          <div class="field">
+            <span class="label">Выравнивание</span>
+            <div class="seg" data-key="align">
+              <button type="button" data-value="left">Слева</button>
+              <button type="button" data-value="center">По центру</button>
+            </div>
+          </div>
+          <label class="field toggle">
+            <span class="label">Показывать слова сразу, пока человек говорит</span>
+            <input type="checkbox" data-key="drafts" />
+          </label>
+        </section>
+
+        <section class="group">
+          <h2>Окно субтитров</h2>
+          <label class="field toggle">
+            <span class="label">Показывать поверх игры</span>
+            <input type="checkbox" id="overlay-visible" />
+          </label>
+          <div class="button-row">
+            <button type="button" class="secondary" id="edit">Переместить</button>
+            <button type="button" class="text-btn" id="reset-pos">Вернуть вниз по центру</button>
+          </div>
+          <dl class="keys">
+            <dt><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>H</kbd></dt>
+            <dd>переместить окно</dd>
+            <dt><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>J</kbd></dt>
+            <dd>спрятать или показать</dd>
+          </dl>
+          <label class="field toggle">
+            <span class="label">Запускать вместе с Windows</span>
+            <input type="checkbox" id="autostart" />
+          </label>
+          <p class="note">Игра должна быть в режиме «окно без рамки». В полноэкранном режиме Windows прячет всё, что поверх игры.</p>
+          <p class="note">Если закрыть это окно, субтитры продолжат работать. Hark останется в трее возле часов, оттуда же его можно выключить.</p>
+        </section>
+        <footer class="legal">
+          <span id="app-version">Hark</span>
+          <span>© 2026 MGI. Hark является собственностью MGI, используется по лицензии.</span>
+        </footer>
+      </aside>
+
+      <section class="stage">
+        <div class="update-banner" id="update" hidden>
+          <span id="update-text">Вышла новая версия Hark</span>
+          <button type="button" class="primary" id="update-go">Обновить</button>
+        </div>
+
+        <div class="warn-banner" id="old-windows" hidden>
+          Эта версия Windows слишком старая: захват звука отдельной программы появился в Windows 10 версии 2004. Обновите Windows или выберите «Весь звук компьютера».
+        </div>
+
+        <div class="onboarding" id="onboarding" hidden>
+          <div class="onboarding-head">
+            <h1>Как начать</h1>
+            <button type="button" class="text-btn" id="onboarding-close">Всё понятно, скрыть</button>
+          </div>
+          <ol class="steps">
+            <li data-step="model"><b>Модель речи</b><span id="step-model-text">скачивается сама, один раз</span></li>
+            <li data-step="source"><b>Кого слушать</b><span>выберите Discord или другую программу слева</span></li>
+            <li data-step="listen"><b>Нажмите «Слушать»</b><span>в следующий раз Hark начнёт сам</span></li>
+            <li data-step="game"><b>Игра в окне без рамки</b><span>в полноэкранном режиме субтитры не видны</span></li>
+          </ol>
+        </div>
+
+        <div class="model" id="model" hidden>
+          <div class="model-text">
+            <h1 id="model-title">Нужна модель распознавания речи</h1>
+            <p id="model-body">Один раз скачаем 165 МБ. Дальше всё работает без интернета, голоса не уходят с компьютера.</p>
+          </div>
+          <div class="model-action">
+            <button type="button" class="primary" id="model-get">Скачать</button>
+            <div class="ticks" id="model-ticks" aria-hidden="true"></div>
+          </div>
+        </div>
+
+        <div class="screen-wrap">
+          <div class="screen" id="screen">
+            <div class="scene" aria-hidden="true">
+              <div class="hill h1"></div>
+              <div class="hill h2"></div>
+              <div class="hud hud-map"></div>
+              <div class="hud hud-bar"></div>
+            </div>
+            <div class="preview-overlay" id="preview-overlay">
+              <div class="hark-view" id="preview-view">
+                <div class="cap-root" id="preview"></div>
+                <div class="sign-panel idle"><canvas id="preview-hand"></canvas><p class="sign-word" id="preview-spelled"></p></div>
+                <div class="sign-strip" id="preview-strip"></div>
+              </div>
+            </div>
+          </div>
+          <div class="screen-caption">
+            <span id="screen-label">Так субтитры будут лежать поверх игры</span>
+            <button type="button" class="text-btn" id="demo">Показать пример</button>
+          </div>
+        </div>
+
+        <div class="log">
+          <div class="group-head">
+            <h2>Что сказали</h2>
+            <button type="button" class="text-btn" id="log-clear">Очистить</button>
+          </div>
+          <ol id="log" aria-live="polite"></ol>
+          <p class="empty" id="log-empty">Здесь появится весь текст разговора, даже тот, что уже пропал с экрана.</p>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

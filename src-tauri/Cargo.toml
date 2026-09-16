@@ -1,0 +1,40 @@
+[package]
+name = "mgi-hark"
+version = "0.1.0"
+edition = "2021"
+description = "Live captions for voice chat"
+authors = ["MGI"]
+license-file = "../LICENSE"
+publish = false
+
+[lib]
+name = "mgi_hark_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-global-shortcut = "2"
+# A second launch (double-clicked shortcut) brings the running app forward.
+tauri-plugin-single-instance = "2"
+# Updates come from madgodinc.net/hark/latest.json, signed with .keys/hark.key.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+sherpa-onnx = "1.13.8"
+wasapi = "0.24"
+sysinfo = { version = "0.38", default-features = false, features = ["system"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
+bzip2 = "0.5"
+tar = "0.4"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+
+[profile.release]
+opt-level = 3
+lto = "thin"

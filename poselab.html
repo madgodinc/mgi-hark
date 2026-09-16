@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>pose lab</title>
+    <style>
+      body { margin: 0; background: #fff; }
+      canvas { width: 400px; height: 400px; display: block; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c" width="400" height="400"></canvas>
+    <script type="module">
+      import { HandView, full } from "/src/hand.js";
+      const view = new HandView(document.getElementById("c"));
+      const { default: url } = await import("/src/assets/right.glb?inline");
+      await view.load(url);
+      view.resize(400, 400);
+      // Pulled back so hands hanging down or pointing sideways stay in frame.
+      view.camera.position.z = 0.7;
+      window.view = view;
+      window.show = (pose) => {
+        view.setPose(full(pose));
+        view.render();
+      };
+      const { RU } = await import("/src/signs/ru.js");
+      window.RU = RU;
+      window.show({});
+      window.ready = true;
+    </script>
+  </body>
+</html>
