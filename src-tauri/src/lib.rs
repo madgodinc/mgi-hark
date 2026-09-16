@@ -1,4 +1,6 @@
 mod autostart;
+#[macro_use]
+pub mod diag;
 mod topmost;
 pub mod asr;
 pub mod audio;
@@ -58,16 +60,25 @@ impl Hark {
     }
 }
 
+static PHRASES: AtomicU64 = AtomicU64::new(0);
+
 struct EventSink(AppHandle);
 
 impl asr::Sink for EventSink {
     fn caption(&self, caption: asr::Caption) {
+        if caption.is_final && !caption.text.is_empty() {
+            let n = PHRASES.fetch_add(1, Ordering::SeqCst) + 1;
+            if n == 1 || n % 20 == 0 {
+                diag!("recognized phrases: {n}");
+            }
+        }
         let _ = self.0.emit("caption", caption);
     }
     fn level(&self, level: f32) {
         let _ = self.0.emit("level", level);
     }
     fn ready(&self) {
+        diag!("speech model loaded");
         self.0.state::<Hark>().engine_ready.store(true, Ordering::SeqCst);
         let _ = self.0.emit("models", json!({ "stage": "done" }));
         let app = self.0.clone();
@@ -92,6 +103,7 @@ fn start_engine(app: &AppHandle) {
         .spawn(move || {
             let sink = EventSink(handle.clone());
             if let Err(e) = asr::run(paths, rx, sink) {
+                diag!("speech engine failed: {e}");
                 *handle.state::<Hark>().engine.lock().unwrap() = None;
                 let _ = handle.emit("models", json!({ "stage": "error", "message": e.to_string() }));
             }
@@ -158,6 +170,11 @@ fn list_sources() -> Vec<sources::AudioApp> {
 }
 
 #[tauri::command]
+fn list_devices() -> Vec<sources::OutputDevice> {
+    sources::output_devices()
+}
+
+#[tauri::command]
 fn start_listening(app: AppHandle, target: Target, name: String, exe: Option<String>) -> Result<(), String> {
     begin_capture(&app, target, name, exe)
 }
@@ -165,6 +182,7 @@ fn start_listening(app: AppHandle, target: Target, name: String, exe: Option<Str
 /// Starts recording a program (or the whole system) into the engine.
 /// `exe` lets us find the program again if it closes and starts anew.
 fn begin_capture(app: &AppHandle, target: Target, name: String, exe: Option<String>) -> Result<(), String> {
+    diag!("listen: {name} ({target:?}, exe {exe:?})");
     let hark = app.state::<Hark>();
     let engine = hark
         .engine
@@ -235,7 +253,7 @@ fn wait_for_program(app: &AppHandle, exe: String, name: String) {
             return;
         }
         if let Some(found) = sources::find(&exe) {
-            let _ = begin_capture(&handle, Target::App { pid: found.pid }, found.name, Some(exe.clone()));
+            let _ = begin_capture(&handle, Target::App { pid: found.pid, pids: found.pids }, found.name, Some(exe.clone()));
             return;
         }
     });
@@ -250,14 +268,24 @@ fn auto_listen(app: &AppHandle) {
     let last = hark.settings.lock().unwrap().get("last_source").cloned();
     let Some(last) = last else { return };
     let name = last.get("name").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-    if last.pointer("/target/kind").and_then(|v| v.as_str()) == Some("system") {
-        let _ = begin_capture(app, Target::System, name, None);
-        return;
+    match last.pointer("/target/kind").and_then(|v| v.as_str()) {
+        Some("system") => {
+            let _ = begin_capture(app, Target::System, name, None);
+            return;
+        }
+        Some("device") => {
+            let id = last.pointer("/target/id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            if sources::output_devices().iter().any(|d| d.id == id) {
+                let _ = begin_capture(app, Target::Device { id }, name, None);
+            }
+            return;
+        }
+        _ => {}
     }
     let Some(exe) = last.get("exe").and_then(|v| v.as_str()).map(String::from) else { return };
     match sources::find(&exe) {
         Some(found) => {
-            let _ = begin_capture(app, Target::App { pid: found.pid }, found.name, Some(exe));
+            let _ = begin_capture(app, Target::App { pid: found.pid, pids: found.pids }, found.name, Some(exe));
         }
         None => wait_for_program(app, exe, name),
     }
@@ -266,7 +294,8 @@ fn auto_listen(app: &AppHandle) {
 fn target_json(target: &Target) -> Value {
     match target {
         Target::System => json!({ "kind": "system" }),
-        Target::App { pid } => json!({ "kind": "app", "pid": pid }),
+        Target::App { pid, pids } => json!({ "kind": "app", "pid": pid, "pids": pids }),
+        Target::Device { id } => json!({ "kind": "device", "id": id }),
     }
 }
 
@@ -288,6 +317,15 @@ fn stop_listening(app: AppHandle, hark: State<Hark>) {
     stop_capture(&hark);
     let _ = app.emit("listen", json!({ "on": false }));
     update_tray(&app);
+}
+
+/// The page found an update while the settings window may be hidden: say so in the tray.
+#[tauri::command]
+fn update_available(app: AppHandle, version: String) {
+    diag!("update available: {version}");
+    if let Some(tray) = app.tray_by_id("main") {
+        let _ = tray.set_tooltip(Some(format!("Hark: вышла версия {version}, откройте, чтобы обновить")));
+    }
 }
 
 #[tauri::command]
@@ -361,6 +399,7 @@ fn download_models(app: AppHandle, hark: State<Hark>) {
     let handle = app.clone();
     std::thread::spawn(move || {
         let progress = handle.clone();
+        diag!("model download start: {lang:?}");
         let result = models::download(&dir, lang, move |p| {
             let _ = progress.emit("models", p);
         });
@@ -371,10 +410,32 @@ fn download_models(app: AppHandle, hark: State<Hark>) {
             Ok(()) if hark.lang() == lang => start_engine(&handle),
             Ok(()) => {}
             Err(e) => {
+                diag!("model download failed: {e}");
                 let _ = handle.emit("models", json!({ "stage": "error", "message": e.to_string() }));
             }
         }
     });
+}
+
+/// Everything a helper needs to tell why nothing is heard, without any captions.
+#[tauri::command]
+fn diag_report(app: AppHandle, hark: State<Hark>) -> String {
+    let lang = hark.lang();
+    let listening = hark.listening.lock().unwrap().clone();
+    let waiting = hark.waiting.lock().unwrap().as_ref().map(|w| w.2.clone());
+    let devices = sources::render_devices().join("; ");
+    let apps = sources::list().iter().map(|a| format!("{} [{}{}]", a.name, a.exe, if a.playing { ", playing" } else { "" })).collect::<Vec<_>>().join("; ");
+    format!(
+        "Hark {version}\nWindows: {os}\nLanguage: {lang:?}, model ready: {ready}, engine loaded: {engine}\nListening: {listening}\nWaiting for: {waiting}\nPhrases recognized this run: {phrases}\nOutput devices: {devices}\nPrograms with audio: {apps}\n\n--- log ---\n{log}",
+        version = app.package_info().version,
+        os = sysinfo::System::long_os_version().unwrap_or_default(),
+        ready = models::ready(&hark.models_dir, lang),
+        engine = hark.engine_ready.load(Ordering::SeqCst),
+        listening = listening.map(|l| l.to_string()).unwrap_or_else(|| "no".into()),
+        waiting = waiting.unwrap_or_else(|| "-".into()),
+        phrases = PHRASES.load(Ordering::SeqCst),
+        log = diag::tail(150),
+    )
 }
 
 /// Switching language swaps the speech model: listening stops, the old engine
@@ -536,6 +597,13 @@ pub fn run() {
                 .and_then(|b| serde_json::from_slice(&b).ok())
                 .unwrap_or_else(|| json!({}));
             let models_dir = app.path().app_local_data_dir()?.join("models");
+            diag::init(app.path().app_log_dir()?);
+            diag!(
+                "start: Hark {} on {}, hidden {}",
+                app.package_info().version,
+                sysinfo::System::long_os_version().unwrap_or_default(),
+                autostart::started_hidden()
+            );
 
             app.manage(Hark {
                 settings: Mutex::new(settings.clone()),
@@ -635,11 +703,14 @@ pub fn run() {
             get_state,
             save_settings,
             list_sources,
+            list_devices,
             start_listening,
             stop_listening,
             download_models,
             set_language,
             set_autostart,
+            update_available,
+            diag_report,
             set_edit,
             set_overlay_visible,
             reset_overlay,

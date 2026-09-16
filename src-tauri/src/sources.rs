@@ -12,8 +12,12 @@ use wasapi::{initialize_mta, DeviceEnumerator, Direction, SessionState};
 
 #[derive(Serialize, Clone, Debug)]
 pub struct AudioApp {
-    /// Root of the process tree; capture uses it with the whole tree included.
+    /// Root of the main process tree.
     pub pid: u32,
+    /// Every separate process tree of this program. Discord and Steam run
+    /// several processes, and not all of them are children of the main one;
+    /// capture opens one stream per root and mixes them.
+    pub pids: Vec<u32>,
     pub exe: String,
     pub name: String,
     /// A voice program we know about, shown first in the list.
@@ -113,18 +117,23 @@ fn list_on_this_thread() -> Vec<AudioApp> {
         current
     };
 
-    let mut apps: HashMap<u32, AudioApp> = HashMap::new();
+    // One entry per program (family), holding all of its separate roots.
+    let mut apps: HashMap<String, AudioApp> = HashMap::new();
     let mut add = |pid: Pid, peak: f32| {
         let root = root_of(pid);
         let Some(exe) = exe_of(root) else { return };
         let voice = describe(&exe).map(|d| d.2).unwrap_or(false);
-        let app = apps.entry(root.as_u32()).or_insert_with(|| AudioApp {
+        let app = apps.entry(family(&exe)).or_insert_with(|| AudioApp {
             pid: root.as_u32(),
+            pids: Vec::new(),
             name: pretty(&exe),
             exe: exe.clone(),
             voice,
             playing: false,
         });
+        if !app.pids.contains(&root.as_u32()) {
+            app.pids.push(root.as_u32());
+        }
         app.playing |= peak > 0.0005;
     };
 
@@ -152,10 +161,66 @@ fn list_on_this_thread() -> Vec<AudioApp> {
     apps
 }
 
+#[derive(Serialize, Clone, Debug)]
+pub struct OutputDevice {
+    pub id: String,
+    pub name: String,
+    pub default: bool,
+}
+
+/// Active output devices, for listening to one device instead of one program.
+pub fn output_devices() -> Vec<OutputDevice> {
+    std::thread::spawn(|| {
+        let _ = initialize_mta();
+        let Ok(enumerator) = DeviceEnumerator::new() else { return Vec::new() };
+        let default_id = enumerator.get_default_device(&Direction::Render).and_then(|d| d.get_id()).ok();
+        let Ok(devices) = enumerator.get_device_collection(&Direction::Render) else { return Vec::new() };
+        let mut out = Vec::new();
+        for device in &devices {
+            let Ok(device) = device else { continue };
+            if !matches!(device.get_state(), Ok(wasapi::DeviceState::Active)) {
+                continue;
+            }
+            let Ok(id) = device.get_id() else { continue };
+            out.push(OutputDevice {
+                default: Some(&id) == default_id.as_ref(),
+                name: device.get_friendlyname().unwrap_or_else(|_| "Устройство".into()),
+                id,
+            });
+        }
+        out.sort_by(|a, b| b.default.cmp(&a.default).then(a.name.cmp(&b.name)));
+        out
+    })
+    .join()
+    .unwrap_or_default()
+}
+
+/// Friendly names of the active output devices, the default one marked.
+pub fn render_devices() -> Vec<String> {
+    std::thread::spawn(|| {
+        let _ = initialize_mta();
+        let Ok(enumerator) = DeviceEnumerator::new() else { return Vec::new() };
+        let default_id = enumerator.get_default_device(&Direction::Render).and_then(|d| d.get_id()).ok();
+        let Ok(devices) = enumerator.get_device_collection(&Direction::Render) else { return Vec::new() };
+        let mut names = Vec::new();
+        for device in &devices {
+            let Ok(device) = device else { continue };
+            let name = device.get_friendlyname().unwrap_or_default();
+            let state = device.get_state().map(|s| format!("{s:?}")).unwrap_or_default();
+            let default = device.get_id().ok().is_some_and(|id| Some(id) == default_id);
+            names.push(format!("{name} ({state}{})", if default { ", default" } else { "" }));
+        }
+        names
+    })
+    .join()
+    .unwrap_or_default()
+}
+
 /// The running program with this executable name, if any (for picking a
 /// program up again after it restarts with a new process id).
 pub fn find(exe: &str) -> Option<AudioApp> {
-    list().into_iter().find(|a| a.exe.eq_ignore_ascii_case(exe))
+    let fam = family(exe);
+    list().into_iter().find(|a| family(&a.exe) == fam)
 }
 
 /// Per-process audio capture exists since Windows 10 version 2004 (build 19041).

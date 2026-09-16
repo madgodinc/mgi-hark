@@ -348,6 +348,19 @@ button {
   to { height: 11px; }
 }
 
+.sources .group-row {
+  cursor: default;
+  grid-template-columns: 1fr;
+  padding: 14px 4px 6px;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  border-bottom: 0;
+}
+
+.sources .group-row:hover {
+  background: none;
+}
+
 .sources .empty-row {
   cursor: default;
   grid-template-columns: 1fr;
@@ -666,6 +679,18 @@ kbd {
 
 .update-banner[hidden] {
   display: none;
+}
+
+.report-row {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  margin-top: 6px;
+}
+
+#report-done,
+#update-check-status {
+  color: var(--lime);
 }
 
 .legal {

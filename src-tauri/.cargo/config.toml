@@ -1,0 +1,5 @@
+# Link the C runtime into the executable, so Hark does not depend on the
+# Visual C++ Redistributable being installed on the user's machine. The
+# sherpa-onnx static library is already built against the static runtime.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

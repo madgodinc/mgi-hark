@@ -201,7 +201,8 @@ function saveFlags() {
   } catch {}
 }
 
-const SYSTEM = { key: "system", name: "Весь звук компьютера", target: { kind: "system" } };
+const SYSTEM = { key: "system", name: "Все устройства сразу", target: { kind: "system" } };
+let devices = [];
 
 function sourceKey(s) {
   return s.key ?? `app:${s.name}`;
@@ -210,7 +211,19 @@ function sourceKey(s) {
 function renderSources() {
   const list = $("sources");
   list.replaceChildren();
-  const rows = [...sources.map((s) => ({ ...s, key: `app:${s.name}`, target: { kind: "app", pid: s.pid } })), SYSTEM];
+  const deviceRows = devices.map((d) => ({
+    key: `device:${d.id}`,
+    name: d.name,
+    device: true,
+    isDefault: d.default,
+    target: { kind: "device", id: d.id },
+  }));
+  const rows = [
+    ...sources.map((s) => ({ ...s, key: `app:${s.name}`, target: { kind: "app", pid: s.pid, pids: s.pids } })),
+    { heading: "Или устройство, куда выводится звук" },
+    ...deviceRows,
+    SYSTEM,
+  ];
   if (sources.length === 0) {
     const li = document.createElement("li");
     li.className = "empty-row";
@@ -218,6 +231,13 @@ function renderSources() {
     list.append(li);
   }
   for (const row of rows) {
+    if (row.heading) {
+      const li = document.createElement("li");
+      li.className = "group-row";
+      li.textContent = row.heading;
+      list.append(li);
+      continue;
+    }
     const li = document.createElement("li");
     li.setAttribute("role", "option");
     li.setAttribute("aria-selected", String(selected === row.name));
@@ -230,7 +250,12 @@ function renderSources() {
     const stateEl = document.createElement("span");
     stateEl.className = "state" + (row.playing ? " playing" : "");
     stateEl.innerHTML = "<span class=eq><i></i><i></i><i></i></span>";
-    stateEl.append(row.key === "system" ? "" : row.playing ? "есть звук" : "тихо");
+    if (row.device || row.key === "system") {
+      stateEl.className = "state";
+      stateEl.textContent = row.isDefault ? "по умолчанию" : "";
+    } else {
+      stateEl.append(row.playing ? "есть звук" : "тихо");
+    }
     li.append(pick, name, stateEl);
     li.addEventListener("click", () => {
       selected = row.name;
@@ -243,9 +268,10 @@ function renderSources() {
 
 async function refreshSources() {
   try {
-    sources = await invoke("list_sources");
+    [sources, devices] = await Promise.all([invoke("list_sources"), invoke("list_devices")]);
   } catch {
     sources = [];
+    devices = [];
   }
   autoSelect();
   renderSources();
@@ -255,7 +281,9 @@ async function refreshSources() {
 function currentRow() {
   if (selected === SYSTEM.name) return SYSTEM;
   const s = sources.find((x) => x.name === selected);
-  return s ? { name: s.name, exe: s.exe, target: { kind: "app", pid: s.pid } } : null;
+  if (s) return { name: s.name, exe: s.exe, target: { kind: "app", pid: s.pid, pids: s.pids } };
+  const d = devices.find((x) => x.name === selected);
+  return d ? { name: d.name, target: { kind: "device", id: d.id } } : null;
 }
 
 // Nobody has chosen yet: take the voice program that is talking, else the
@@ -597,24 +625,56 @@ async function installUpdate(update) {
   }
 }
 
-async function checkForUpdate() {
-  if (pendingUpdate) return;
+// Right after launch nobody is in the middle of a conversation yet, so an
+// update found then installs at once. Later ones wait for the person: a
+// banner here, and the next launch installs whatever is still pending.
+const LAUNCH_WINDOW_MS = 90_000;
+
+async function checkForUpdate({ manual = false } = {}) {
+  const status = $("update-check-status");
+  if (pendingUpdate) {
+    if (manual) status.textContent = `Есть версия ${pendingUpdate.version}, нажмите «Обновить» вверху`;
+    return;
+  }
+  if (manual) status.textContent = "Проверяю…";
   try {
     const update = await check();
-    if (!update) return;
+    if (!update) {
+      if (manual) status.textContent = "У вас последняя версия";
+      return;
+    }
     pendingUpdate = update;
-    // Started with Windows: the person is not playing yet, update right away.
-    if (state.started_hidden && !listening?.on) {
+    if (performance.now() < LAUNCH_WINDOW_MS) {
+      $("update").hidden = false;
+      $("update-text").textContent = `Обновляю Hark до версии ${update.version}…`;
       installUpdate(update);
       return;
     }
     $("update-text").textContent = `Вышла новая версия Hark ${update.version}`;
     $("update").hidden = false;
-  } catch {
+    if (manual) status.textContent = `Есть версия ${update.version}, нажмите «Обновить» вверху`;
+    invoke("update_available", { version: update.version }).catch(() => {});
+  } catch (e) {
     // Offline or the site is down: try again later, never bother the person.
+    if (manual) status.textContent = "Не удалось проверить: нет связи с сайтом";
   }
 }
 
 $("update-go").addEventListener("click", () => pendingUpdate && installUpdate(pendingUpdate));
-setTimeout(checkForUpdate, 8000);
-setInterval(checkForUpdate, 6 * 60 * 60 * 1000);
+$("update-check").addEventListener("click", () => checkForUpdate({ manual: true }));
+checkForUpdate();
+setInterval(checkForUpdate, 60 * 60 * 1000);
+
+/* ───────── support report ───────── */
+
+$("report").addEventListener("click", async () => {
+  const done = $("report-done");
+  try {
+    const text = await invoke("diag_report");
+    await navigator.clipboard.writeText(text);
+    done.textContent = "Скопировано. Отправьте этот текст тому, кто помогает с Hark.";
+  } catch (e) {
+    done.textContent = `Не получилось скопировать: ${e}`;
+  }
+  setTimeout(() => (done.textContent = ""), 8000);
+});
