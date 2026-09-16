@@ -2345,6 +2345,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "wasapi",
+ "windows-sys 0.59.0",
  "winreg 0.52.0",
 ]
 

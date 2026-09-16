@@ -34,6 +34,8 @@ tar = "0.4"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+# SetWindowPos: keeps the overlay above other always-on-top windows (topmost.rs).
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [profile.release]
 opt-level = 3

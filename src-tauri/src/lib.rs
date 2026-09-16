@@ -1,4 +1,5 @@
 mod autostart;
+mod topmost;
 pub mod asr;
 pub mod audio;
 pub mod models;
@@ -596,6 +597,7 @@ pub fn run() {
                 None => place_default(app.handle(), &overlay),
             }
             overlay.set_ignore_cursor_events(true)?;
+            topmost::keep(app.handle().clone(), OVERLAY);
             if settings.get("overlay_visible").and_then(|v| v.as_bool()).unwrap_or(true) {
                 overlay.show()?;
             }
