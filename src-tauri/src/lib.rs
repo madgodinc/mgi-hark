@@ -6,6 +6,8 @@ mod topmost;
 pub mod asr;
 pub mod audio;
 pub mod models;
+pub mod glossary;
+pub mod mt;
 mod sources;
 mod translate;
 
@@ -45,6 +47,8 @@ struct Hark {
     waiting: Mutex<Option<(u64, String, String)>>,
     /// Auto-listen is tried once per launch, when the model first becomes ready.
     auto_listen_done: AtomicBool,
+    /// The translation model is a gigabyte of its own, fetched separately.
+    mt_downloading: AtomicBool,
 }
 
 impl Hark {
@@ -64,17 +68,58 @@ impl Hark {
 
 static PHRASES: AtomicU64 = AtomicU64::new(0);
 
-/// The language to translate into and the game whose slang to use, or None when
-/// translation is off. Read per phrase, so the switch works mid-session.
-fn translation(app: &AppHandle) -> Option<(String, String)> {
+/// Where the translation happens.
+pub enum Where {
+    /// Our service hears the phrase itself, in any of 99 languages.
+    Cloud { game: String },
+    /// The model on this computer reads what the speech model recognised.
+    Local,
+}
+
+pub struct Mode {
+    pub place: Where,
+    /// NLLB code of the speech being translated, e.g. "eng_Latn".
+    pub source: String,
+    /// "ru" or "en": what the person reads.
+    pub target: String,
+    /// Whose slang to use: "all", "shooter", "moba" or "mmo".
+    pub game: String,
+}
+
+impl Mode {
+    pub fn target_code(&self) -> String {
+        nllb_code(&self.target).to_string()
+    }
+}
+
+fn nllb_code(lang: &str) -> &'static str {
+    match lang {
+        "en" => "eng_Latn",
+        _ => "rus_Cyrl",
+    }
+}
+
+/// How the phrase should be translated, or None when translation is off. Read
+/// per phrase, so the switch works mid-session.
+fn translation(app: &AppHandle) -> Option<Mode> {
     let hark = app.try_state::<Hark>()?;
     let settings = hark.settings.lock().unwrap();
-    if settings.get("translate").and_then(|v| v.as_str()).unwrap_or("off") != "cloud" {
-        return None;
+    let mode = settings.get("translate").and_then(|v| v.as_str()).unwrap_or("off");
+    let target = settings.get("translateTo").and_then(|v| v.as_str()).unwrap_or("ru").to_string();
+    let spoken = settings.get("lang").and_then(|v| v.as_str()).unwrap_or("ru");
+    match mode {
+        "cloud" => {
+            let game = settings.get("game").and_then(|v| v.as_str()).unwrap_or("all").to_string();
+            Some(Mode { place: Where::Cloud { game: game.clone() }, source: nllb_code(spoken).to_string(), target, game })
+        }
+        // Nothing to do when the speech is already in the language being read:
+        // the local model only knows the language the speech model was set to.
+        "local" if spoken != target => {
+            let game = settings.get("game").and_then(|v| v.as_str()).unwrap_or("all").to_string();
+            Some(Mode { place: Where::Local, source: nllb_code(spoken).to_string(), target, game })
+        }
+        _ => None,
     }
-    let target = settings.get("translateTo").and_then(|v| v.as_str()).unwrap_or("ru");
-    let game = settings.get("game").and_then(|v| v.as_str()).unwrap_or("all");
-    Some((target.to_string(), game.to_string()))
 }
 
 struct EventSink(AppHandle);
@@ -86,6 +131,9 @@ impl asr::Sink for EventSink {
             if n == 1 || n % 20 == 0 {
                 diag!("recognized phrases: {n}");
             }
+            if matches!(translation(&self.0), Some(Mode { place: Where::Local, .. })) {
+                translate::submit_text(&self.0, caption.id, &caption.text);
+            }
         }
         let _ = self.0.emit("caption", caption);
     }
@@ -96,7 +144,7 @@ impl asr::Sink for EventSink {
         let _ = self.0.emit("sound", key);
     }
     fn wants_audio(&self) -> bool {
-        translation(&self.0).is_some()
+        matches!(translation(&self.0), Some(Mode { place: Where::Cloud { .. }, .. }))
     }
     fn phrase(&self, id: u64, samples: &[f32]) {
         translate::submit(&self.0, id, samples);
@@ -153,6 +201,9 @@ struct Snapshot {
     waiting: Option<String>,
     edit: bool,
     windows_ok: bool,
+    /// The translation model is on disk, so "on this computer" can be chosen.
+    mt_ready: bool,
+    mt_downloading: bool,
     autostart: bool,
     /// Started by Windows at sign-in: nobody is looking, updates may install at once.
     started_hidden: bool,
@@ -174,6 +225,8 @@ fn get_state(hark: State<Hark>) -> Snapshot {
         waiting: hark.waiting.lock().unwrap().as_ref().map(|w| w.2.clone()),
         edit: hark.edit.load(Ordering::SeqCst),
         windows_ok: sources::windows_supports_capture(),
+        mt_ready: models::mt_paths(&hark.models_dir).is_some(),
+        mt_downloading: hark.mt_downloading.load(Ordering::SeqCst),
         autostart,
         started_hidden: autostart::started_hidden(),
     }
@@ -507,6 +560,38 @@ fn download_models(app: AppHandle, hark: State<Hark>) {
     });
 }
 
+/// The translation model on this computer: about a gigabyte, so it is fetched
+/// only when the person chooses that mode, and its progress is its own channel.
+#[tauri::command]
+fn download_translation(app: AppHandle, hark: State<Hark>) {
+    if hark.mt_downloading.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let dir = hark.models_dir.clone();
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        diag!("translation model download start");
+        let progress = handle.clone();
+        let result = models::download_mt(&dir, move |p| {
+            let _ = progress.emit("translation-model", p);
+        });
+        handle.state::<Hark>().mt_downloading.store(false, Ordering::SeqCst);
+        match result {
+            Ok(()) => {
+                diag!("translation model ready");
+                let _ = handle.emit("translation-model", json!({ "stage": "done", "done": 0, "total": 0, "message": "" }));
+            }
+            Err(e) => {
+                report::error("mt-download", &e.to_string());
+                let _ = handle.emit(
+                    "translation-model",
+                    json!({ "stage": "error", "done": 0, "total": 0, "message": e.to_string() }),
+                );
+            }
+        }
+    });
+}
+
 /// Everything a helper needs to tell why nothing is heard, without any captions.
 #[tauri::command]
 fn diag_report(app: AppHandle, hark: State<Hark>) -> String {
@@ -738,6 +823,7 @@ pub fn run() {
                 edit: AtomicBool::new(false),
                 waiting: Mutex::new(None),
                 auto_listen_done: AtomicBool::new(false),
+                mt_downloading: AtomicBool::new(false),
             });
 
             // First run: start with Windows unless the person turns it off.
@@ -822,6 +908,7 @@ pub fn run() {
             start_listening,
             stop_listening,
             download_models,
+            download_translation,
             set_language,
             set_autostart,
             report_error,

@@ -109,6 +109,38 @@ pub fn download(dir: &Path, lang: Lang, report: impl Fn(Progress)) -> anyhow::Re
     Ok(())
 }
 
+/// Translation on this computer: NLLB-200 600M int8 and the ONNX Runtime it
+/// runs on, both served from our own site because neither has a stable public
+/// download that is safe to depend on.
+const MT_HOME: &str = "https://madgodinc.net/hark/models";
+const MT: &str = "hark-nllb-600m-int8";
+const MT_FILES: &[&str] = &["encoder_model.onnx", "encoder_model.onnx.data", "decoder_merged.onnx", "tokenizer.json"];
+const RUNTIME_DLL: &str = "onnxruntime-1.28.2-win-x64.dll";
+
+/// (model folder, runtime library) when the translation model is on disk.
+pub fn mt_paths(dir: &Path) -> Option<(PathBuf, PathBuf)> {
+    let model = dir.join(MT);
+    let dll = dir.join(RUNTIME_DLL);
+    let ready = dll.is_file() && MT_FILES.iter().all(|f| model.join(f).is_file());
+    ready.then_some((model, dll))
+}
+
+pub fn download_mt(dir: &Path, report: impl Fn(Progress)) -> anyhow::Result<()> {
+    fs::create_dir_all(dir)?;
+    let client = reqwest::blocking::Client::builder().user_agent("mgi-hark").timeout(None).build()?;
+    let dll = dir.join(RUNTIME_DLL);
+    if !dll.is_file() {
+        fetch(&client, &format!("{MT_HOME}/{RUNTIME_DLL}"), &dll, |done, total| {
+            report(Progress { stage: "download", done, total, message: String::new() })
+        })?;
+    }
+    fetch_archive(&client, dir, MT_HOME, MT, MT_FILES, &report)?;
+    if mt_paths(dir).is_none() {
+        anyhow::bail!("файлы перевода не появились после распаковки");
+    }
+    Ok(())
+}
+
 /// Recognises non-speech sounds (laughter, music, gunshots...) for caption tags.
 /// CED mini, 10 MB int8, 527 AudioSet classes.
 const TAGGER: &str = "sherpa-onnx-ced-mini-audio-tagging-2024-04-19";
@@ -153,8 +185,12 @@ fn fetch_archive(
         let mut entry = entry?;
         let path = entry.path()?.into_owned();
         let Some(file) = path.file_name().and_then(|n| n.to_str()) else { continue };
+        // Some archives are packed as "./name/file" and some as "name/file"; the
+        // leading "." is not a folder. Ignoring that kept the English model from
+        // ever unpacking.
+        let depth = path.components().filter(|c| !matches!(c, std::path::Component::CurDir)).count();
         // Test recordings share file names across folders; keep only top-level model files.
-        if path.components().count() == 2 && (files.contains(&file) || file == "LICENSE") {
+        if depth == 2 && (files.contains(&file) || file == "LICENSE") {
             entry.unpack(staging.join(file))?;
         }
     }

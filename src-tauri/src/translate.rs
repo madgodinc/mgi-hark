@@ -7,11 +7,12 @@
 //! nothing, the audio lives in its memory only while the request runs.
 
 use crate::audio::RATE;
+use crate::{Mode, Where};
 use serde_json::{json, Value};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 const URL: &str = "https://madgodinc.net/hark/api/translate";
 /// Phrases waiting for the server. Speech outruns a slow network, and a
@@ -20,9 +21,11 @@ const QUEUE: usize = 3;
 /// Longer than any VAD segment; a stray buffer is not worth the traffic.
 const MAX_SECONDS: usize = 20;
 
-struct Job {
-    id: u64,
-    samples: Vec<f32>,
+enum Job {
+    /// Cloud mode: the server hears the phrase itself, in any language.
+    Audio { id: u64, samples: Vec<f32> },
+    /// On this computer: the speech model already read it, we only translate.
+    Text { id: u64, text: String },
 }
 
 static WORKER: OnceLock<SyncSender<Job>> = OnceLock::new();
@@ -32,6 +35,18 @@ pub fn submit(app: &AppHandle, id: u64, samples: &[f32]) {
     if samples.is_empty() || samples.len() > RATE as usize * MAX_SECONDS {
         return;
     }
+    send(app, Job::Audio { id, samples: samples.to_vec() });
+}
+
+/// The text of a finished phrase, for the model on this computer.
+pub fn submit_text(app: &AppHandle, id: u64, text: &str) {
+    if text.trim().is_empty() {
+        return;
+    }
+    send(app, Job::Text { id, text: text.to_string() });
+}
+
+fn send(app: &AppHandle, job: Job) {
     let tx = WORKER.get_or_init(|| {
         let (tx, rx) = sync_channel(QUEUE);
         let app = app.clone();
@@ -41,7 +56,7 @@ pub fn submit(app: &AppHandle, id: u64, samples: &[f32]) {
             .expect("spawn translate thread");
         tx
     });
-    if let Err(TrySendError::Full(_)) = tx.try_send(Job { id, samples: samples.to_vec() }) {
+    if let Err(TrySendError::Full(_)) = tx.try_send(job) {
         diag!("translation queue full, phrase skipped");
     }
 }
@@ -55,15 +70,22 @@ fn run(app: AppHandle, rx: Receiver<Job>) {
         Ok(client) => client,
         Err(e) => return crate::report::error("translate", &e.to_string()),
     };
+    let mut local: Option<crate::mt::Local> = None;
     let mut done = 0u64;
     for job in rx {
         // Read the settings per phrase: the mode can be turned off mid-session.
-        let Some((target, game)) = crate::translation(&app) else {
-            diag!("translate: turned off, phrase dropped");
-            continue;
-        };
+        let Some(mode) = crate::translation(&app) else { continue };
         let started = Instant::now();
-        match send(&client, &job, &target, &game) {
+        let answer = match (&mode.place, &job) {
+            (Where::Cloud { game }, Job::Audio { samples, .. }) => post(&client, samples, &mode.target, game),
+            (Where::Local, Job::Text { text, .. }) => on_this_computer(&app, &mut local, text, &mode),
+            // The mode changed while the phrase was in the queue.
+            _ => continue,
+        };
+        let id = match &job {
+            Job::Audio { id, .. } | Job::Text { id, .. } => *id,
+        };
+        match answer {
             Ok(answer) => {
                 let text = answer.get("text").and_then(|v| v.as_str()).unwrap_or_default();
                 if text.is_empty() {
@@ -76,7 +98,7 @@ fn run(app: AppHandle, rx: Receiver<Job>) {
                 let _ = app.emit(
                     "translation",
                     json!({
-                        "id": job.id,
+                        "id": id,
                         "text": text,
                         "original": answer.get("original").and_then(|v| v.as_str()).unwrap_or_default(),
                         "lang": answer.get("lang").and_then(|v| v.as_str()).unwrap_or_default(),
@@ -89,12 +111,27 @@ fn run(app: AppHandle, rx: Receiver<Job>) {
     }
 }
 
-fn send(client: &reqwest::blocking::Client, job: &Job, target: &str, game: &str) -> Result<Value, String> {
+/// Loads the model on first use: about a gigabyte of weights, a few seconds.
+fn on_this_computer(app: &AppHandle, local: &mut Option<crate::mt::Local>, text: &str, mode: &Mode) -> Result<Value, String> {
+    if local.is_none() {
+        let dir = app.state::<crate::Hark>().models_dir.clone();
+        let (model, dll) = crate::models::mt_paths(&dir).ok_or("модель перевода ещё не скачана")?;
+        let threads = crate::mt::threads();
+        let started = Instant::now();
+        *local = Some(crate::mt::Local::load(&model, &dll, threads).map_err(|e| e.to_string())?);
+        diag!("local translation model loaded in {} ms, {threads} threads", started.elapsed().as_millis());
+    }
+    let engine = local.as_mut().expect("model just loaded");
+    let out = engine.translate(text, &mode.source, &mode.target_code(), &mode.game).map_err(|e| e.to_string())?;
+    Ok(json!({ "text": out, "original": text, "lang": &mode.source[..2], "translated": true }))
+}
+
+fn post(client: &reqwest::blocking::Client, samples: &[f32], target: &str, game: &str) -> Result<Value, String> {
     let install = crate::report::install();
     let response = client
         .post(format!("{URL}?target={target}&game={game}&install={install}"))
         .header("content-type", "audio/wav")
-        .body(wav(&job.samples))
+        .body(wav(samples))
         .send()
         .map_err(|_| "нет связи с сервером перевода".to_string())?;
     match response.status().as_u16() {

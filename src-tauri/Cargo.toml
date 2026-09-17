@@ -1,6 +1,6 @@
 [package]
 name = "mgi-hark"
-version = "0.1.10"
+version = "0.1.11"
 edition = "2021"
 description = "Live captions for voice chat"
 authors = ["MGI"]
@@ -31,6 +31,13 @@ sysinfo = { version = "0.38", default-features = false, features = ["system"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking", "json"] }
 bzip2 = "0.5"
 tar = "0.4"
+# Translation on this computer: ONNX Runtime loaded at run time (the speech
+# models already link their own copy statically, so a second static one would
+# collide at link time), the Hugging Face tokenizer without its C regex, and
+# regular expressions for the gaming glossary.
+ort = { version = "2.0.0-rc.13", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-27"] }
+tokenizers = { version = "0.23", default-features = false, features = ["fancy-regex"] }
+regex = "1"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"

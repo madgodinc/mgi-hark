@@ -62,10 +62,15 @@
           <h2>Перевод речи</h2>
           <div class="field">
             <span class="label">Переводить чужую речь</span>
-            <div class="seg" data-key="translate">
+            <div class="seg wrap" data-key="translate">
               <button type="button" data-value="off">Выключен</button>
               <button type="button" data-value="cloud">Через наш сервер</button>
+              <button type="button" data-value="local">На этом компьютере</button>
             </div>
+          </div>
+          <div class="field" id="mt-local" hidden>
+            <p class="note" id="mt-note"></p>
+            <button type="button" class="secondary" id="mt-get">Скачать модель перевода</button>
           </div>
           <div class="field" data-when-translate>
             <span class="label">Показывать на языке</span>
@@ -74,7 +79,7 @@
               <button type="button" data-value="en">English</button>
             </div>
           </div>
-          <div class="field" data-when-translate>
+          <div class="field" data-when-translate data-cloud-only>
             <span class="label">Во что играете: чтобы понимать игровой сленг</span>
             <div class="seg wrap" data-key="game">
               <button type="button" data-value="all">Любая игра</button>
@@ -87,7 +92,7 @@
             <span class="label">Показывать мелким шрифтом, что сказали на самом деле</span>
             <input type="checkbox" data-key="showOriginal" />
           </label>
-          <p class="note" data-when-translate>
+          <p class="note" data-when-translate data-cloud-only>
             Речь на любом из 99 языков распознаётся и переводится на нашем сервере: звук фразы уходит туда и сразу
             удаляется, ничего не хранится и не записывается. Это единственный режим, в котором звук покидает ваш
             компьютер. Перевод занимает около полусекунды после конца фразы.

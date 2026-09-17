@@ -54,7 +54,7 @@ setInterval(() => {
   const text = done ? "Я иду на центральную линию, прикрой меня справа." : SAMPLE_DRAFT.slice(0, n).join(" ");
   // With translation on, the sample speaks English and reads Russian, the way
   // it will happen with a foreign teammate.
-  const translating = settings.translate === "cloud" && settings.showOriginal;
+  const translating = settings.translate !== "off" && settings.showOriginal;
   sample.push({ id: 2, text, final: done, orig: done && translating ? "EN · im going mid, cover me on the right" : "" });
   if (sampleWords === SAMPLE_DRAFT.length + 2 && settings.soundTags) sample.push({ id: 2, text: "[смех]", final: true, tag: true });
 }, 420);
@@ -131,9 +131,65 @@ function reflect() {
   }
   // The translation settings mean nothing until translation is on.
   for (const el of document.querySelectorAll("[data-when-translate]")) {
+    el.hidden = settings.translate === "off";
+  }
+  // The server-side slang dictionary only applies to the cloud mode.
+  for (const el of document.querySelectorAll("[data-cloud-only]")) {
     el.hidden = settings.translate !== "cloud";
   }
+  renderMt();
 }
+
+/* ───────── translation model on this computer ───────── */
+
+const MT_SIZE = "1,2 ГБ";
+let mtReady = state.mt_ready;
+
+function renderMt(info = {}) {
+  const box = $("mt-local");
+  const note = $("mt-note");
+  const get = $("mt-get");
+  box.hidden = settings.translate !== "local";
+  if (box.hidden) return;
+  const sameLanguage = (settings.lang || "ru") === (settings.translateTo || "ru");
+  if (info.stage === "download" || info.stage === "unpack") {
+    note.textContent = info.total
+      ? `Скачиваю: ${Math.round(info.done / 1048576)} из ${Math.round(info.total / 1048576)} МБ. Можно продолжать пользоваться Hark.`
+      : info.stage === "unpack"
+        ? "Распаковываю модель, это пара минут."
+        : "Соединяюсь…";
+    get.hidden = true;
+    return;
+  }
+  if (info.stage === "error") {
+    note.textContent = `Не получилось скачать: ${info.message || "неизвестная ошибка"}. Проверьте интернет и место на диске.`;
+    get.hidden = false;
+    get.textContent = "Попробовать снова";
+    return;
+  }
+  if (mtReady) {
+    note.textContent = sameLanguage
+      ? "Модель на месте, но язык речи и язык вывода совпадают: переводить нечего. Выберите разные языки выше."
+      : "Модель на месте. Перевод идёт на этом компьютере, ничего никуда не отправляется. Первая фраза после запуска ждёт несколько секунд, пока модель загрузится в память.";
+    get.hidden = true;
+    return;
+  }
+  note.textContent = `Перевод без интернета: ничего не уходит с компьютера. Один раз скачаем ${MT_SIZE}, столько же займёт на диске и примерно столько же оперативной памяти во время работы. Фраза переводится около секунды и занимает половину ядер процессора. Понимает тот язык, на который настроено распознавание речи.`;
+  get.hidden = false;
+  get.textContent = "Скачать модель перевода";
+}
+
+$("mt-get").addEventListener("click", () => {
+  renderMt({ stage: "download", done: 0, total: 0 });
+  invoke("download_translation");
+});
+
+await listen("translation-model", (e) => {
+  if (e.payload.stage === "done") mtReady = true;
+  renderMt(e.payload);
+});
+
+renderMt(state.mt_downloading ? { stage: "download", done: 0, total: 0 } : {});
 
 for (const input of document.querySelectorAll("input[type=range][data-key]")) {
   input.addEventListener("input", () => update(input.dataset.key, Number(input.value)));
@@ -162,6 +218,10 @@ reflect();
 function renderLang() {
   for (const b of $("lang").querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.value === lang));
   $("try-text").placeholder = lang === "en" ? "Type a word" : "Напишите слово";
+  // The translation on this computer goes from the recognised language, so the
+  // note under it changes with this switch too.
+  settings = { ...settings, lang };
+  renderMt();
 }
 renderLang();
 

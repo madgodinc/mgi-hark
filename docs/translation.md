@@ -98,6 +98,7 @@ Single English verbs never go into `pre`. "push", "pull", "throw" and "feed" are
 
 1. ~~Translation service on tyan: Whisper large-v3-turbo + NLLB 1.3B on P100 #1, batching queue, quotas, no storage, systemd unit, Caddy route `/hark/api/translate`.~~ Done 2026-09-17.
 2. ~~App: translation mode setting, sending finished phrases to the service, showing the translation and the optional original.~~ Done 2026-09-18.
-3. Local mode: Parakeet v3 through sherpa-onnx (same library as today), NLLB 600M through CTranslate2 (the Rust bindings build CTranslate2 from source with CMake; the riskiest step).
-4. Processor or NVIDIA choice for the local translation model.
+3. ~~Local mode: NLLB 600M on this computer.~~ Done 2026-09-18, through ONNX Runtime rather than CTranslate2: the Rust bindings for CTranslate2 build it from source with CMake, which is not installed on the machine that builds Hark and would have to match the static C runtime the app links.
+4. Processor or video card choice for the local model. The processor path is what shipped; DirectML would run it on any card (NVIDIA, AMD, Intel) and needs an fp16 build of the model, about 1.2 GB more to download.
+5. Multilingual offline recognition (Parakeet v3), so the offline mode understands more than the two languages the captions support.
 5. ~~Gaming glossary.~~ Done 2026-09-18, per-game groups.
