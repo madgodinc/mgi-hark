@@ -1,0 +1,42 @@
+# /etc/systemd/system/hark-mt.service
+[Unit]
+Description=Hark translation: speech in any language, text in Russian or English (GPU)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mad
+WorkingDirectory=/data/hark-mt
+Environment=HARK_MT_HOST=127.0.0.1
+Environment=HARK_MT_PORT=8796
+Environment=HARK_MT_ROOT=/data/hark-mt
+# GPU 1: GPU 0 belongs to the language model service.
+Environment=HARK_MT_GPU=1
+# Tesla P100 is compute 6.0: float16 and int8 bring nothing there.
+Environment=HARK_MT_COMPUTE=float32
+Environment=HF_HOME=/data/hark-mt/hf
+ExecStart=/data/hark-mt/venv/bin/python /data/hark-mt/hark_mt.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/data/hark-mt/hark-mt.log
+StandardError=append:/data/hark-mt/hark-mt.log
+
+# Faces untrusted clients, but needs the GPU, so devices stay reachable while
+# everything else is closed off.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/data/hark-mt
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
