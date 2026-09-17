@@ -10,7 +10,10 @@
 use crate::audio::RATE;
 use crate::models::{Model, ModelPaths};
 use serde::Serialize;
-use sherpa_onnx::{OfflineRecognizer, OfflineRecognizerConfig, VadModelConfig, VoiceActivityDetector};
+use sherpa_onnx::{
+    AudioTagging, AudioTaggingConfig, OfflineRecognizer, OfflineRecognizerConfig, VadModelConfig, VoiceActivityDetector,
+};
+use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
@@ -39,6 +42,78 @@ pub trait Sink: Send + 'static {
     fn level(&self, level: f32);
     /// Models are loaded and audio is being listened for.
     fn ready(&self);
+    /// A non-speech sound was heard: a key like "laughter" or "music".
+    fn sound(&self, key: &'static str);
+}
+
+/// AudioSet class names to the sound keys shown as caption tags.
+fn sound_key(label: &str) -> Option<&'static str> {
+    Some(match label {
+        "Laughter" | "Giggle" | "Snicker" | "Belly laugh" | "Chuckle, chortle" => "laughter",
+        "Screaming" | "Shout" | "Yell" | "Children shouting" => "shouting",
+        "Crying, sobbing" => "crying",
+        "Singing" => "singing",
+        "Whistling" => "whistling",
+        "Cough" => "cough",
+        "Cheering" | "Applause" => "cheering",
+        "Music" => "music",
+        "Explosion" | "Boom" => "explosion",
+        "Gunshot, gunfire" | "Machine gun" | "Fusillade" => "gunfire",
+        "Siren" | "Police car (siren)" | "Ambulance (siren)" | "Fire engine, fire truck (siren)" | "Civil defense siren" => "siren",
+        "Alarm" | "Alarm clock" | "Car alarm" | "Smoke detector, smoke alarm" => "alarm",
+        "Bark" | "Dog" => "dog",
+        "Meow" | "Cat" => "cat",
+        "Knock" => "knock",
+        "Telephone bell ringing" | "Ringtone" => "phone",
+        "Shatter" | "Glass" => "glass",
+        "Thunder" => "thunder",
+        _ => return None,
+    })
+}
+
+struct Tagger {
+    tagging: AudioTagging,
+    last: HashMap<&'static str, Instant>,
+}
+
+impl Tagger {
+    fn load(paths: &ModelPaths) -> Option<Tagger> {
+        let (model, labels) = crate::models::tagger_paths(&paths.models_dir)?;
+        let mut config = AudioTaggingConfig::default();
+        config.model.ced = Some(model);
+        config.model.num_threads = 1;
+        config.labels = Some(labels);
+        config.top_k = 5;
+        let tagging = AudioTagging::create(&config)?;
+        crate::diag::line("sound tagger loaded");
+        Some(Tagger { tagging, last: HashMap::new() })
+    }
+
+    /// The strongest recognisable sound in a clip, at most once per key per
+    /// few seconds (music, which plays on and on, far less often).
+    fn tag(&mut self, samples: &[f32], sink: &impl Sink) {
+        let stream = self.tagging.create_stream();
+        stream.accept_waveform(RATE, samples);
+        let mut candidates: Vec<(&'static str, f32)> = self
+            .tagging
+            .compute(&stream, 8)
+            .into_iter()
+            .filter_map(|e| sound_key(&e.name).map(|k| (k, e.prob)))
+            .filter(|(k, p)| *p >= if *k == "music" { 0.55 } else { 0.3 })
+            .collect();
+        // Background music is almost always there in games; anything else
+        // heard over it matters more.
+        candidates.sort_by(|a, b| (a.0 == "music").cmp(&(b.0 == "music")).then(b.1.total_cmp(&a.1)));
+        for (key, _) in candidates {
+            let gap = if key == "music" { 45 } else { 5 };
+            if self.last.get(key).is_some_and(|t| t.elapsed() < Duration::from_secs(gap)) {
+                continue;
+            }
+            self.last.insert(key, Instant::now());
+            sink.sound(key);
+            return;
+        }
+    }
 }
 
 fn load(paths: &ModelPaths) -> anyhow::Result<(VoiceActivityDetector, OfflineRecognizer)> {
@@ -85,6 +160,11 @@ fn decode(asr: &OfflineRecognizer, samples: &[f32]) -> String {
 pub fn run(paths: ModelPaths, rx: Receiver<Msg>, sink: impl Sink) -> anyhow::Result<()> {
     let (vad, asr) = load(&paths)?;
     sink.ready();
+    let mut tagger = Tagger::load(&paths);
+    let mut next_tagger_look = Instant::now() + Duration::from_secs(30);
+    // Audio heard while nobody speaks, tagged in 1.6 s pieces.
+    let mut quiet: Vec<f32> = Vec::new();
+    const QUIET_CLIP: usize = (RATE as usize * 16) / 10;
 
     let mut buffer: Vec<f32> = Vec::new();
     let mut fed = 0usize;
@@ -103,6 +183,9 @@ pub fn run(paths: ModelPaths, rx: Receiver<Msg>, sink: impl Sink) -> anyhow::Res
                     level_peak = level_peak.max(s.abs());
                 }
                 buffer.extend_from_slice(&samples);
+                if !speaking && tagger.is_some() {
+                    quiet.extend_from_slice(&samples);
+                }
             }
             Ok(Msg::Reset) => {
                 vad.reset();
@@ -118,6 +201,24 @@ pub fn run(paths: ModelPaths, rx: Receiver<Msg>, sink: impl Sink) -> anyhow::Res
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return Ok(()),
+        }
+
+        if tagger.is_none() && Instant::now() >= next_tagger_look {
+            // Installs from before the tagger existed fetch it in the background.
+            next_tagger_look = Instant::now() + Duration::from_secs(30);
+            tagger = Tagger::load(&paths);
+        }
+        if quiet.len() >= QUIET_CLIP {
+            let rms = (quiet.iter().map(|v| v * v).sum::<f32>() / quiet.len() as f32).sqrt();
+            if rms > 0.01 {
+                if let Some(t) = tagger.as_mut() {
+                    t.tag(&quiet, &sink);
+                }
+            }
+            quiet.clear();
+        }
+        if speaking {
+            quiet.clear();
         }
 
         if next_level <= Instant::now() {
@@ -170,6 +271,10 @@ pub fn run(paths: ModelPaths, rx: Receiver<Msg>, sink: impl Sink) -> anyhow::Res
             // the first syllable that VAD needs a moment to notice.
             let samples = if first_of_phrase { &buffer[..] } else { segment.samples() };
             let text = decode(&asr, samples);
+            // Laughter and shouting often open a "speech" segment of their own.
+            if let Some(t) = tagger.as_mut() {
+                t.tag(samples, &sink);
+            }
             if !text.is_empty() {
                 sink.caption(Caption { id, text, is_final: true });
             } else if !last_draft.is_empty() {

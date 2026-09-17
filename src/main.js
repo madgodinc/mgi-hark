@@ -9,7 +9,7 @@ import { emit } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { CaptionView, withDefaults } from "./captions.js";
+import { CaptionView, withDefaults, soundLabel } from "./captions.js";
 import { SignPlayer } from "./signplayer.js";
 
 const $ = (id) => document.getElementById(id);
@@ -37,7 +37,13 @@ function fitSample() {
 fitSample();
 const SAMPLE_FINAL = "Привет! Слышишь меня? Заходи в голосовой канал.";
 const SAMPLE_DRAFT = "я иду на центральную линию прикрой меня справа".split(" ");
-sample.push({ id: 1, text: SAMPLE_FINAL, final: true });
+// The sample greets the person by their own name when one is set, so the
+// highlight can be seen, and shows what a sound tag looks like.
+const sampleFinal = () => {
+  const name = String(settings.names || "").split(/[,;]/)[0].trim();
+  return name ? `Привет, ${name}! Слышишь меня? Заходи в канал.` : SAMPLE_FINAL;
+};
+sample.push({ id: 1, text: sampleFinal(), final: true });
 let sampleWords = 0;
 setInterval(() => {
   // A draft that types itself, then settles, then starts over.
@@ -47,6 +53,7 @@ setInterval(() => {
   const done = sampleWords >= SAMPLE_DRAFT.length + 1;
   const text = done ? "Я иду на центральную линию, прикрой меня справа." : SAMPLE_DRAFT.slice(0, n).join(" ");
   sample.push({ id: 2, text, final: done });
+  if (sampleWords === SAMPLE_DRAFT.length + 2 && settings.soundTags) sample.push({ id: 2, text: "[смех]", final: true, tag: true });
 }, 420);
 
 // The mini screen shows a placeholder while nobody is talking.
@@ -78,8 +85,8 @@ function update(key, value) {
 }
 
 function pickLook(s) {
-  const { font, size, weight, color, outline, bgColor, bgOpacity, lines, fade, align, drafts, caps, mode, signSpeed, signStyle } = s;
-  return { font, size, weight, color, outline, bgColor, bgOpacity, lines, fade, align, drafts, caps, mode, signSpeed, signStyle };
+  const { font, size, weight, color, outline, bgColor, bgOpacity, lines, fade, align, drafts, caps, mode, signSpeed, signStyle, soundTags, names } = s;
+  return { font, size, weight, color, outline, bgColor, bgOpacity, lines, fade, align, drafts, caps, mode, signSpeed, signStyle, soundTags, names };
 }
 
 function formatOutput(out, value) {
@@ -740,4 +747,23 @@ $("send-errors").addEventListener("change", (e) => invoke("save_settings", { set
 $("to-support").addEventListener("click", () => {
   $("support").scrollIntoView({ behavior: "smooth", block: "start" });
   setTimeout(() => $("fb-message").focus({ preventScroll: true }), 400);
+});
+
+/* ───────── names and sound tags ───────── */
+
+$("names").value = settings.names || "";
+let namesTimer = 0;
+$("names").addEventListener("input", () => {
+  clearTimeout(namesTimer);
+  namesTimer = setTimeout(() => {
+    update("names", $("names").value);
+    sample.push({ id: 1, text: sampleFinal(), final: true });
+  }, 250);
+});
+
+await listen("sound", (e) => {
+  if (!settings.soundTags) return;
+  preview.remove(PREVIEW_SAMPLE.id, true);
+  preview.pushTag(e.payload, lang);
+  logCaption({ id: `sound-${Date.now()}`, text: `[${soundLabel(e.payload, lang)}]`, final: true });
 });

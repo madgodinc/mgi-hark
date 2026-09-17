@@ -27,10 +27,40 @@ export const DEFAULTS = {
   mode: "text", // "text", "signs" or "both"
   signSpeed: 1.6, // letters per second
   signStyle: "hand", // "hand" or "strip"
+  soundTags: true, // show [смех], [музыка], [выстрелы]
+  names: "", // comma-separated names and nicknames to highlight
 };
 
 /** Signs are paused until the ВОГ materials arrive: always show text for now. */
 export const SIGNS_ENABLED = false;
+
+const SOUND_LABELS = {
+  ru: {
+    laughter: "смех", shouting: "крик", crying: "плач", singing: "поют", whistling: "свист",
+    cough: "кашель", cheering: "аплодисменты", music: "музыка", explosion: "взрыв", gunfire: "выстрелы",
+    siren: "сирена", alarm: "сигнализация", dog: "лает собака", cat: "мяукает кошка", knock: "стук",
+    phone: "звонит телефон", glass: "бьётся стекло", thunder: "гром",
+  },
+  en: {
+    laughter: "laughter", shouting: "shouting", crying: "crying", singing: "singing", whistling: "whistling",
+    cough: "coughing", cheering: "applause", music: "music", explosion: "explosion", gunfire: "gunfire",
+    siren: "siren", alarm: "alarm", dog: "dog barking", cat: "cat meowing", knock: "knocking",
+    phone: "phone ringing", glass: "glass breaking", thunder: "thunder",
+  },
+};
+
+export function soundLabel(key, lang) {
+  return (SOUND_LABELS[lang] || SOUND_LABELS.ru)[key] || key;
+}
+
+/** Lower-case stems of the names to look for; "Саша" also catches "Саше", "Сашу". */
+function nameStems(names) {
+  return String(names || "")
+    .split(/[,;]/)
+    .map((n) => n.trim().toLowerCase().replace(/ё/g, "е"))
+    .filter((n) => n.length >= 2)
+    .map((n) => (n.length >= 4 && /[аеёиоуыэюяaeiouy]$/.test(n) ? n.slice(0, -1) : n));
+}
 
 export function withDefaults(settings) {
   const s = { ...DEFAULTS, ...(settings || {}) };
@@ -90,11 +120,13 @@ export class CaptionView {
     this.items = new Map(); // id -> { el, span, final, finalAt, words, timer }
     this.pending = new Map(); // id -> { text, final }, waiting for a free line
     this.flushTimer = 0;
+    this.tagCount = 0;
     this.set(settings);
   }
 
   set(settings) {
     this.s = withDefaults(settings);
+    this.stems = nameStems(this.s.names);
     applyLook(this.lookEl, this.s);
     this.lookEl.dataset.mode = this.s.mode;
     this.lookEl.dataset.style = this.s.signStyle;
@@ -124,13 +156,13 @@ export class CaptionView {
     const { id, text, final } = caption;
     if (this.pending.has(id)) {
       if (final && !text) this.pending.delete(id);
-      else this.pending.set(id, { text, final });
+      else this.pending.set(id, { text, final, tag: caption.tag });
       return;
     }
     if (!this.items.has(id)) {
       if (final && !text) return;
       if (this.items.size >= this.s.lines && !this.oldestReadable()) {
-        this.pending.set(id, { text, final });
+        this.pending.set(id, { text, final, tag: caption.tag });
         this.scheduleFlush();
         return;
       }
@@ -138,7 +170,13 @@ export class CaptionView {
     this.show(caption);
   }
 
-  show({ id, text, final }) {
+  /** A heard sound as its own short line: "[смех]". */
+  pushTag(key, lang = "ru") {
+    if (!this.s.soundTags) return;
+    this.push({ id: `tag-${++this.tagCount}`, text: `[${soundLabel(key, lang)}]`, final: true, tag: true });
+  }
+
+  show({ id, text, final, tag }) {
     let item = this.items.get(id);
     if (final && !text) {
       if (item) this.remove(id);
@@ -154,6 +192,7 @@ export class CaptionView {
       item = { el, span, final: false, finalAt: 0, words: 0, timer: 0 };
       this.items.set(id, item);
     }
+    item.el.classList.toggle("tag", !!tag);
     if (final) {
       // One span per whitespace token, so the word being signed can be lit up.
       item.span.replaceChildren(
@@ -169,6 +208,17 @@ export class CaptionView {
       item.span.textContent = text;
     }
     item.words = text.split(/\s+/).filter(Boolean).length;
+    if (final && this.stems.length) {
+      let hit = false;
+      for (const w of item.span.querySelectorAll(".w")) {
+        const token = w.textContent.toLowerCase().replace(/ё/g, "е").replace(/[^\p{L}\p{N}]/gu, "");
+        if (token.length >= 2 && this.stems.some((stem) => token.startsWith(stem))) {
+          w.classList.add("name-hit");
+          hit = true;
+        }
+      }
+      item.el.classList.toggle("mention", hit);
+    }
     if (final && !item.final) item.finalAt = performance.now();
     item.final = final;
     item.el.classList.toggle("draft", !final);

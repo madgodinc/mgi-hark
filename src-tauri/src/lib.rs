@@ -78,6 +78,9 @@ impl asr::Sink for EventSink {
     fn level(&self, level: f32) {
         let _ = self.0.emit("level", level);
     }
+    fn sound(&self, key: &'static str) {
+        let _ = self.0.emit("sound", key);
+    }
     fn ready(&self) {
         diag!("speech model loaded");
         self.0.state::<Hark>().engine_ready.store(true, Ordering::SeqCst);
@@ -97,6 +100,14 @@ fn start_engine(app: &AppHandle) {
     let (tx, rx) = mpsc::channel();
     *engine = Some(tx);
     let paths = models::paths(&hark.models_dir, lang);
+    if models::tagger_paths(&hark.models_dir).is_none() {
+        let dir = hark.models_dir.clone();
+        std::thread::spawn(move || {
+            if let Err(e) = models::download_tagger(&dir) {
+                diag!("sound tagger download failed: {e}");
+            }
+        });
+    }
     let handle = app.clone();
     let _ = app.emit("models", json!({ "stage": "loading" }));
     std::thread::Builder::new()

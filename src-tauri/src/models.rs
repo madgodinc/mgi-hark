@@ -46,6 +46,7 @@ pub enum Model {
 
 #[derive(Clone, Debug)]
 pub struct ModelPaths {
+    pub models_dir: std::path::PathBuf,
     pub vad: String,
     pub tokens: String,
     pub model: Model,
@@ -56,6 +57,7 @@ pub fn paths(dir: &Path, lang: Lang) -> ModelPaths {
     let g = dir.join(name);
     let s = |p: PathBuf| p.to_string_lossy().to_string();
     ModelPaths {
+        models_dir: dir.to_path_buf(),
         vad: s(dir.join("silero_vad.onnx")),
         tokens: s(g.join("tokens.txt")),
         model: match lang {
@@ -95,34 +97,70 @@ pub fn download(dir: &Path, lang: Lang, report: impl Fn(Progress)) -> anyhow::Re
     }
 
     let (name, files) = lang.archive();
-    if !files.iter().all(|f| dir.join(name).join(f).is_file()) {
-        let archive = dir.join(format!("{name}.tar.bz2"));
-        fetch(&client, &format!("{RELEASES}/{name}.tar.bz2"), &archive, |done, total| {
-            report(Progress { stage: "download", done, total, message: String::new() })
-        })?;
-
-        report(Progress { stage: "unpack", done: 0, total: 0, message: String::new() });
-        let staging = dir.join(format!("{name}.unpacking"));
-        let _ = fs::remove_dir_all(&staging);
-        fs::create_dir_all(&staging)?;
-        let mut tar = tar::Archive::new(bzip2::read::BzDecoder::new(File::open(&archive)?));
-        for entry in tar.entries()? {
-            let mut entry = entry?;
-            let path = entry.path()?.into_owned();
-            let Some(file) = path.file_name().and_then(|n| n.to_str()) else { continue };
-            // Test recordings share file names across folders; keep only top-level model files.
-            if path.components().count() == 2 && (files.contains(&file) || file == "LICENSE") {
-                entry.unpack(staging.join(file))?;
-            }
-        }
-        let _ = fs::remove_dir_all(dir.join(name));
-        fs::rename(&staging, dir.join(name))?;
-        let _ = fs::remove_file(&archive);
+    fetch_archive(&client, dir, RELEASES, name, files, &report)?;
+    // The sound tagger is small and optional: a failure here must not block speech.
+    if let Err(e) = fetch_archive(&client, dir, TAGGER_RELEASES, TAGGER, TAGGER_FILES, &|_| {}) {
+        crate::diag::line(format!("sound tagger download failed: {e}"));
     }
 
     if !ready(dir, lang) {
         anyhow::bail!("файлы модели не появились после распаковки");
     }
+    Ok(())
+}
+
+/// Recognises non-speech sounds (laughter, music, gunshots...) for caption tags.
+/// CED mini, 10 MB int8, 527 AudioSet classes.
+const TAGGER: &str = "sherpa-onnx-ced-mini-audio-tagging-2024-04-19";
+const TAGGER_RELEASES: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/audio-tagging-models";
+const TAGGER_FILES: &[&str] = &["model.int8.onnx", "class_labels_indices.csv"];
+
+/// (model, labels) when the sound tagger is on disk.
+pub fn tagger_paths(dir: &Path) -> Option<(String, String)> {
+    let d = dir.join(TAGGER);
+    let (m, l) = (d.join(TAGGER_FILES[0]), d.join(TAGGER_FILES[1]));
+    (m.is_file() && l.is_file()).then(|| (m.to_string_lossy().to_string(), l.to_string_lossy().to_string()))
+}
+
+/// Fetches just the sound tagger, for installs that already have the speech model.
+pub fn download_tagger(dir: &Path) -> anyhow::Result<()> {
+    fs::create_dir_all(dir)?;
+    let client = reqwest::blocking::Client::builder().user_agent("mgi-hark").timeout(None).build()?;
+    fetch_archive(&client, dir, TAGGER_RELEASES, TAGGER, TAGGER_FILES, &|_| {})
+}
+
+fn fetch_archive(
+    client: &reqwest::blocking::Client,
+    dir: &Path,
+    releases: &str,
+    name: &str,
+    files: &[&str],
+    report: &dyn Fn(Progress),
+) -> anyhow::Result<()> {
+    if files.iter().all(|f| dir.join(name).join(f).is_file()) {
+        return Ok(());
+    }
+    let archive = dir.join(format!("{name}.tar.bz2"));
+    fetch(client, &format!("{releases}/{name}.tar.bz2"), &archive, |done, total| {
+        report(Progress { stage: "download", done, total, message: String::new() })
+    })?;
+    report(Progress { stage: "unpack", done: 0, total: 0, message: String::new() });
+    let staging = dir.join(format!("{name}.unpacking"));
+    let _ = fs::remove_dir_all(&staging);
+    fs::create_dir_all(&staging)?;
+    let mut tar = tar::Archive::new(bzip2::read::BzDecoder::new(File::open(&archive)?));
+    for entry in tar.entries()? {
+        let mut entry = entry?;
+        let path = entry.path()?.into_owned();
+        let Some(file) = path.file_name().and_then(|n| n.to_str()) else { continue };
+        // Test recordings share file names across folders; keep only top-level model files.
+        if path.components().count() == 2 && (files.contains(&file) || file == "LICENSE") {
+            entry.unpack(staging.join(file))?;
+        }
+    }
+    let _ = fs::remove_dir_all(dir.join(name));
+    fs::rename(&staging, dir.join(name))?;
+    let _ = fs::remove_file(&archive);
     Ok(())
 }
 

@@ -58,6 +58,10 @@ await listen("spell", (e) => {
   if (view.s.mode !== "text") signs.say(e.payload, null, { now: true });
 });
 await listen("edit", (e) => setEdit(e.payload));
+await listen("sound", (e) => {
+  view.remove(SAMPLE.id, true);
+  view.pushTag(e.payload, signs.lang || "ru");
+});
 await listen("listen", (e) => {
   if (!e.payload.on) {
     // Leave the last words readable for a moment, then clear.

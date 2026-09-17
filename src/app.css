@@ -599,6 +599,13 @@ input[type="checkbox"]:checked::after {
   cursor: pointer;
 }
 
+.names {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.names input,
 #support textarea,
 #support input[type="text"] {
   width: 100%;

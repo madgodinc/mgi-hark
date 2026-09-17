@@ -119,9 +119,14 @@ fn list_on_this_thread() -> Vec<AudioApp> {
 
     // One entry per program (family), holding all of its separate roots.
     let mut apps: HashMap<String, AudioApp> = HashMap::new();
+    let own = std::process::id();
     let mut add = |pid: Pid, peak: f32| {
         let root = root_of(pid);
         let Some(exe) = exe_of(root) else { return };
+        // Hark's own webview has an audio session; listening to itself is nonsense.
+        if root.as_u32() == own || exe.eq_ignore_ascii_case("mgi-hark.exe") {
+            return;
+        }
         let voice = describe(&exe).map(|d| d.2).unwrap_or(false);
         let app = apps.entry(family(&exe)).or_insert_with(|| AudioApp {
             pid: root.as_u32(),

@@ -33,6 +33,30 @@
   text-shadow: var(--cap-shadow);
 }
 
+/* A heard sound, not words: quieter and slanted, in brackets. */
+.cap-line.tag span {
+  font-style: italic;
+  font-size: 0.82em;
+  color: color-mix(in oklab, var(--cap-color) 80%, transparent);
+}
+
+/* The person's own name: impossible to miss. */
+.cap-line .w.name-hit {
+  color: #16190a;
+  background: #e6ff4a;
+  text-shadow: none;
+  padding: 0 0.12em;
+}
+
+.cap-line.mention {
+  animation: cap-mention 900ms ease-out 2;
+}
+
+@keyframes cap-mention {
+  0%, 100% { transform: none; }
+  30% { transform: scale(1.04); }
+}
+
 /* Older phrases step back so the eye lands on the newest one. */
 .cap-line:not(:last-child) {
   opacity: 0.78;
@@ -73,6 +97,7 @@
   .cap-line.entering { transform: none; }
   .cap-line.leaving { filter: none; }
   .cap-line.draft span::after { animation: none; }
+  .cap-line.mention { animation: none; }
 }
 
 /* ── text and signs side by side ── */

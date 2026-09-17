@@ -14,6 +14,9 @@ impl asr::Sink for Print {
     }
     fn level(&self, _: f32) {}
     fn ready(&self) {}
+    fn sound(&self, key: &'static str) {
+        println!("{:>6.2}s  [{key}]", self.0.elapsed().as_secs_f32());
+    }
 }
 
 fn main() {
