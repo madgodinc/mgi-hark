@@ -217,7 +217,9 @@ impl Local {
         };
         let mut done: Vec<String> = Vec::new();
         for sentence in sentences(&prepared) {
-            done.push(self.once(sentence, source, target)?);
+            // Each sentence goes through on its own and starts with a capital of
+            // its own; joined without this, the second one comes back lower case.
+            done.push(capitalize(&self.once(sentence, source, target)?));
         }
         let out = glossary::restore(&done.join(" "), &marks);
         let out = match &section {

@@ -114,7 +114,9 @@ fn translation(app: &AppHandle) -> Option<Mode> {
         }
         // Nothing to do when the speech is already in the language being read:
         // the local model only knows the language the speech model was set to.
-        "local" if spoken != target => {
+        // Without the model on disk there is nothing to do either, and asking
+        // per phrase would only fill the log.
+        "local" if spoken != target && models::mt_paths(&hark.models_dir).is_some() => {
             let game = settings.get("game").and_then(|v| v.as_str()).unwrap_or("all").to_string();
             Some(Mode { place: Where::Local, source: nllb_code(spoken).to_string(), target, game })
         }
