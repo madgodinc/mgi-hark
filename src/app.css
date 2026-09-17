@@ -457,6 +457,15 @@ output {
   gap: 3px;
 }
 
+/* Four choices do not fit one row in the sidebar; two by two do. */
+.seg.wrap {
+  flex-wrap: wrap;
+}
+
+.seg.wrap button {
+  flex: 1 1 calc(50% - 3px);
+}
+
 .seg button {
   flex: 1;
   border: 0;

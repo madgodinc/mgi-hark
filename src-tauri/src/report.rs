@@ -45,6 +45,11 @@ pub fn new_install_id() -> String {
     format!("{:032x}", mixed.wrapping_mul(0x9E37_79B9_7F4A_7C15_F39C_C060_5CED_C835))
 }
 
+/// The anonymous install id, for services that count requests per copy.
+pub fn install() -> String {
+    IDENTITY.get().map(|id| id.install.clone()).unwrap_or_default()
+}
+
 /// Logs the failure and, unless turned off, reports it in the background.
 pub fn error(kind: &str, message: &str) {
     crate::diag::line(format!("error [{kind}]: {message}"));

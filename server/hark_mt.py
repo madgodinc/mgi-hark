@@ -23,6 +23,7 @@ import os
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 import wave
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -64,6 +65,18 @@ NLLB_OF = {
 }
 
 PUNCT = re.compile(r"[^\w\s]+", re.UNICODE)
+# A placeholder right after a pronoun makes the model write a dash it would
+# not write for a plain noun: "Он - в одну пулю".
+# One sentence at a time, punctuation kept with the sentence it ends.
+# A placeholder as it comes back: "ZQ3", or transliterated into Russian.
+MARK_ANY = re.compile(r"[ZЗ3]\s?[QКK]\s?(\d+)", re.IGNORECASE)
+# Whisper writes contractions, the glossary is written without them.
+APOSTROPHE = re.compile(r"['\u2019](?=[a-z])", re.IGNORECASE)
+SENTENCE = re.compile(r"[^.!?\u2026]+[.!?\u2026]*", re.S)
+PRONOUN_DASH = re.compile(r"\b(Он|Она|Оно|Они|Я|Ты|Мы|Вы|He|She|They|I|We|You) [-\u2013\u2014] ")
+PUNCT_SPACE = re.compile(r"\s+([,.!?;:])")
+# Written this way on purpose: a backslash-one in a generated file is easy to break.
+BACKREF = chr(92) + "1"
 lock_counters = threading.Lock()
 counters = {"asr": 0, "mt": 0, "glossary": 0, "rejected": 0}
 hits: dict[str, deque] = {}
@@ -102,63 +115,111 @@ class Glossary:
             for lang, section in raw.items():
                 if lang.startswith("_"):
                     continue
-                calls = {self.key(k): v for k, v in section.get("calls", {}).items()}
-                fixes = sorted(section.get("fixes", {}).items(), key=lambda kv: -len(kv[0]))
-                pre = sorted(section.get("pre", {}).items(), key=lambda kv: -len(kv[0]))
-                terms = sorted(section.get("terms", {}).items(), key=lambda kv: -len(kv[0]))
-                data[lang] = {"calls": calls, "fixes": fixes, "pre": pre, "terms": terms}
+                # Groups (common, shooter, moba, mmo) are merged; they exist so
+                # that a game can later be picked in the app.
+                if "groups" in section:
+                    # Kept apart on purpose: the same word means different things
+                    # per game ("push" is a lane in a MOBA and a rush in a shooter),
+                    # so the app says which game it is and that group wins.
+                    data[lang] = {"groups": {name: self.compile(group) for name, group in section["groups"].items()}}
+                    continue
+                data[lang] = {"groups": {"common": self.compile(section)}}
             self.data = data
             self.stamp = stamp
-            print("glossary loaded: " + ", ".join(f"{k} {len(v['calls'])} calls, {len(v['terms'])} terms, {len(v['pre'])} pre, {len(v['fixes'])} fixes" for k, v in data.items()), flush=True)
+            print("glossary loaded: " + ", ".join(f"{lang}: " + "/".join(f"{name} {sum(len(x) for x in group.values())}" for name, group in section["groups"].items()) for lang, section in data.items()), flush=True)
         except Exception as exc:
             print(f"glossary not loaded: {exc}", flush=True)
+
+    @staticmethod
+    def compile(group):
+        return {
+            "calls": {Glossary.key(k): v for k, v in group.get("calls", {}).items()},
+            "terms": sorted(group.get("terms", {}).items(), key=lambda kv: -len(kv[0])),
+            "pre": sorted(group.get("pre", {}).items(), key=lambda kv: -len(kv[0])),
+            "fixes": sorted(group.get("fixes", {}).items(), key=lambda kv: -len(kv[0])),
+        }
+
+    def section(self, source, game):
+        """Common words plus the chosen game; the game's own entries win."""
+        groups = self.data.get(source, {}).get("groups")
+        if not groups:
+            return None
+        chosen = [groups.get("common", {})]
+        if game and game != "all" and game in groups:
+            chosen.append(groups[game])
+        elif game == "all":
+            chosen += [gr for name, gr in groups.items() if name != "common"]
+        merged = {"calls": {}, "terms": [], "pre": [], "fixes": []}
+        for group in chosen:
+            merged["calls"].update(group.get("calls", {}))
+            for layer in ("terms", "pre", "fixes"):
+                combined = dict(merged[layer])
+                combined.update(dict(group.get(layer, [])))
+                merged[layer] = sorted(combined.items(), key=lambda kv: -len(kv[0]))
+        return merged
 
     @staticmethod
     def key(text):
         return PUNCT.sub("", text.lower()).strip()
 
-    def call(self, text, source):
+    def call(self, text, source, game):
         """A whole short phrase we know by heart, no model needed."""
-        section = self.data.get(source)
+        section = self.section(source, game)
         if not section:
             return None
         return section["calls"].get(self.key(text))
 
-    def prepare(self, text, source):
+    def prepare(self, text, source, game):
         """Game words are hidden behind ZQ-placeholders, which the model copies
         verbatim (checked), and slang it has never seen is rewritten into plain
         language: 'push bot' becomes 'attack the bottom lane'.
         Returns the prepared text and what each placeholder stands for."""
-        section = self.data.get(source)
+        section = self.section(source, game)
         if not section:
             return text, {}
+        text = APOSTROPHE.sub("", text)
         marks = {}
-        for term, target_word in section["terms"]:
-            def mark(_match, word=target_word):
-                token = f"ZQ{len(marks) + 1}"
-                marks[token] = word
-                return token
-            text = re.sub(rf"(?<!\w){re.escape(term)}(?!\w)", mark, text, flags=re.IGNORECASE)
-        for slang, plain in section["pre"]:
-            text = re.sub(rf"(?<!\w){re.escape(slang)}(?!\w)", plain, text, flags=re.IGNORECASE)
+        # One pass per layer: a replacement must never be rewritten again by a
+        # shorter rule ("im knocked" -> "I am downed" -> "I am downed but alive
+        # but alive"), so the whole layer is one alternation.
+        def one_pass(text, pairs, on_hit):
+            if not pairs:
+                return text
+            table = {k.lower(): v for k, v in pairs}
+            pattern = "|".join(re.escape(k) for k, _ in pairs)
+            return re.sub(rf"(?<!\w)(?:{pattern})(?!\w)", lambda m: on_hit(table[m.group(0).lower()]), text, flags=re.IGNORECASE)
+
+        def hide(word):
+            token = f"ZQ{len(marks) + 1}"
+            marks[token] = word
+            return token
+
+        text = one_pass(text, section["terms"], hide)
+        text = one_pass(text, section["pre"], lambda plain: plain)
         return text, marks
 
     @staticmethod
     def restore(text, marks):
-        for token, word in marks.items():
-            text = re.sub(re.escape(token), word, text)
-        return text
+        if not marks:
+            return text
+        return MARK_ANY.sub(lambda m: marks.get(f"ZQ{m.group(1)}", m.group(0)), text)
 
-    def repair(self, text, source):
-        section = self.data.get(source)
+    def repair(self, text, source, game):
+        section = self.section(source, game)
         if not section:
             return text
-        for wrong, right in section["fixes"]:
-            if wrong in text.lower():
-                # Keep the sentence's own capitalisation at the start.
-                pattern = re.compile(re.escape(wrong), re.IGNORECASE)
-                text = pattern.sub(lambda m: right.capitalize() if m.start() == 0 else right, text)
-        return text
+        pairs = section["fixes"]
+        if not pairs:
+            return text
+        table = {k.lower(): v for k, v in pairs}
+        pattern = "|".join(re.escape(k) for k, _ in pairs)
+        # Also one pass, and the sentence keeps its own capital letter.
+        return re.sub(
+            rf"(?<!\w)(?:{pattern})(?!\w)",
+            lambda m: table[m.group(0).lower()].capitalize() if m.start() == 0 else table[m.group(0).lower()],
+            text,
+            flags=re.IGNORECASE,
+        )
 
 
 class Batcher:
@@ -244,10 +305,22 @@ def transcribe(audio):
     return text, info.language
 
 
-def to_target(text, source, target):
+def capitalize(text):
+    """A phrase that starts with a glossary placeholder comes back lowercase."""
+    for n, ch in enumerate(text):
+        if ch.isalpha():
+            return text[:n] + ch.upper() + text[n + 1:]
+    return text
+
+
+# A phrase rarely holds more than three sentences; four workers cover the rest.
+pool = ThreadPoolExecutor(max_workers=4)
+
+
+def to_target(text, source, target, game="all"):
     """Glossary first, model second, glossary again on the answer."""
     glossary.load()
-    known = glossary.call(text, source)
+    known = glossary.call(text, source, game)
     if known:
         with lock_counters:
             counters["glossary"] += 1
@@ -255,12 +328,20 @@ def to_target(text, source, target):
     src_code, tgt_code = NLLB_OF.get(source), TARGETS[target]
     if not src_code:
         raise ValueError(f"язык {source} пока не поддерживается")
-    prepared, marks = glossary.prepare(text, source)
-    out = glossary.restore(batcher.submit((prepared, src_code, tgt_code)), marks)
+    prepared, marks = glossary.prepare(text, source, game)
+    pieces = [p.strip() for p in SENTENCE.findall(prepared) if p.strip()]
+    # The pieces go to the batcher at once, so two sentences cost the time of one.
+    if len(pieces) > 1:
+        done = list(pool.map(lambda p: batcher.submit((p, src_code, tgt_code)), pieces))
+    else:
+        done = [batcher.submit((pieces[0] if pieces else prepared, src_code, tgt_code))]
+    out = glossary.restore(" ".join(x for x in done if x), marks)
     with lock_counters:
         counters["mt"] += 1
     # sentencepiece leaves a space before punctuation now and then.
-    return re.sub(r"\s+([,.!?;:])", r"", glossary.repair(out, source))
+    out = PUNCT_SPACE.sub(BACKREF, glossary.repair(out, source, game))
+    out = PRONOUN_DASH.sub(BACKREF + " ", out)
+    return capitalize(out)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -326,7 +407,7 @@ class Handler(BaseHTTPRequestHandler):
                 if lang == target:
                     return self.reply(200, {"text": text, "original": text, "lang": lang, "translated": False,
                                             "ms": int(1000 * (time.time() - started))})
-                out = to_target(text, lang, target)
+                out = to_target(text, lang, target, params.get("game", "all"))
                 return self.reply(200, {"text": out, "original": text, "lang": lang, "translated": True,
                                         "ms": int(1000 * (time.time() - started))})
             except Exception as exc:
@@ -348,7 +429,7 @@ class Handler(BaseHTTPRequestHandler):
             if source == target:
                 return self.reply(200, {"text": text, "original": text, "lang": source, "translated": False})
             try:
-                return self.reply(200, {"text": to_target(text, source, target), "original": text,
+                return self.reply(200, {"text": to_target(text, source, target, str(data.get("game", "all"))), "original": text,
                                         "lang": source, "translated": True})
             except ValueError as exc:
                 return self.reply(400, {"error": str(exc)})

@@ -53,6 +53,10 @@ await listen("caption", (e) => {
   // Signs follow finished phrases only: a draft still changes under the hand.
   if (e.payload.final && e.payload.text && view.s.mode !== "text") signs.say(e.payload.text, e.payload.id);
 });
+await listen("translation", (e) => {
+  view.remove(SAMPLE.id, true);
+  view.translated(e.payload);
+});
 // "Show in signs" from the settings window.
 await listen("spell", (e) => {
   if (view.s.mode !== "text") signs.say(e.payload, null, { now: true });

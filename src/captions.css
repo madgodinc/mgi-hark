@@ -33,6 +33,27 @@
   text-shadow: var(--cap-shadow);
 }
 
+/* What was actually said, under the translation: there to check against, so it
+   keeps out of the way. */
+.cap-orig {
+  display: block;
+  margin-top: 0.14em;
+  font-size: 0.56em;
+  font-style: normal;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.cap-orig span {
+  background: var(--cap-bg);
+  padding: 0.1em 0.4em;
+  color: color-mix(in oklab, var(--cap-color) 72%, transparent);
+  /* The heavy caption contour turns to mud at this size. */
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.85);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
 /* A heard sound, not words: quieter and slanted, in brackets. */
 .cap-line.tag span {
   font-style: italic;

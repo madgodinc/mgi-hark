@@ -2,7 +2,9 @@
 
 Live captions for voice chat, for people who cannot hear it. Hark records the sound of one program (Discord, Steam, TeamSpeak, a browser) or of the whole computer, turns Russian speech into text on the same machine and shows it in a transparent window on top of the game.
 
-Nothing is sent anywhere. The speech model is downloaded once on first run (165 MB) and then works offline.
+Recognition happens on the machine and nothing is sent anywhere, unless translation is turned on: then the audio of each
+finished phrase goes to our service, which reads it in any of 99 languages and answers with Russian (or English) text.
+The service stores nothing. The speech model is downloaded once on first run (165 MB) and then works offline.
 
 ## For the person using it
 
@@ -21,6 +23,10 @@ Sign language display is built but switched off (`SIGNS_ENABLED` in `src/caption
 - **Recognition.** `asr.rs` runs Silero VAD to cut phrases and GigaAM v3 (sherpa-onnx, CPU) to read them. While a phrase is being spoken, the growing audio is re-read and shown as a draft; when the phrase ends it is read once more and the punctuated text replaces the draft. GigaAM reads 11 s of speech in about 0.45 s on a desktop CPU.
 - **Staying out of the way.** Tray icon, close-to-tray, single instance, per-user autostart (`autostart.rs`, removed again by the uninstaller hook `installer-hooks.nsh`), auto-listen to the last source, and waiting for a closed program to come back (liveness is checked on a clock: Windows keeps delivering silent buffers for an exited process).
 - **Overlay.** A transparent, always-on-top, click-through Tauri window (`overlay.html`). Ctrl+~ makes it movable, Ctrl+Alt+J hides it. The settings window previews it on a miniature screen with the same rendering code (`src/captions.js`).
+- **Translation.** `translate.rs` sends the audio of a finished phrase to `madgodinc.net/hark/api/translate` and the answer
+  replaces that caption line; at most three phrases wait for the network. The service (`server/hark_mt.py`) runs Whisper
+  large-v3-turbo and NLLB-200 1.3B on a Tesla P100 and applies a gaming glossary (`server/glossary.json`) around the model,
+  per game: "push" is a lane in a MOBA and a rush in a shooter. Details and measurements in `docs/translation.md`.
 - **Models.** `models.rs` downloads from the sherpa-onnx GitHub releases into `%LOCALAPPDATA%\net.mgi.hark\models`.
 - **Languages.** Russian (GigaAM v3, 165 MB) or English (Parakeet TDT-CTC 110M, 100 MB). Switching language swaps the model; each is downloaded on first use.
 - **Signs.** The overlay shows text, signs, or both. Finished phrases go through `src/signplayer.js`: each word is looked up in `src/signs/words.js` (whole-word signs, empty for now) and otherwise spelled with the manual alphabet, Russian dactyl (`src/signs/ru.js`, 33 letters) or ASL fingerspelling (`src/signs/en.js`, 26 letters). The hand is a rigged 3D model (`src/hand.js`, WebXR generic hand, MIT) posed by finger angles; letters that are movements (Й, Щ, Ц, J, Z...) are keyframes. Thumb contacts are solved automatically (`touch` in a pose), so rings and pinches close exactly. Two styles: one animated hand, or a strip with a still hand per letter of the current word (sprites rendered once and cached). The word being signed is also highlighted inside the caption line.

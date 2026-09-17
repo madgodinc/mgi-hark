@@ -10,7 +10,7 @@ const { chromium } = require("playwright-core");
 const [cmd, which, arg] = process.argv.slice(2);
 const browser = await chromium.connectOverCDP(`http://127.0.0.1:${process.env.HARK_CDP_PORT || 9333}`);
 const pages = browser.contexts().flatMap((c) => c.pages());
-const page = pages.find((p) => p.url().includes("tauri.localhost") && (which === "overlay") === p.url().includes("overlay"));
+const page = pages.find((p) => (p.url().includes("tauri.localhost") || p.url().includes("localhost:1430")) && (which === "overlay") === p.url().includes("overlay"));
 if (cmd === "shot") {
   await page.screenshot({ path: arg, omitBackground: which === "overlay" });
   console.log("saved", arg);

@@ -57,14 +57,47 @@ AMD and Intel graphics fall back to the processor in the first version. Speech r
 - Speech already in the target language is shown as is, without a round trip through translation.
 - Drafts while someone speaks are not translated (they change every few hundred milliseconds); the translated line appears when the phrase ends.
 
-## Known weak spot: gaming slang
+## How it works in the app
 
-General translation models translate slang literally. Measured examples: "push bot" became "толкать ботов", "cover me" became "покрывай меня" with the 600M model (the 1.3B model got "прикрывай меня"). Plan: a gaming glossary applied around translation (protect names of heroes, maps and items; map common calls like "push", "gank", "rotate", "cover me" to the words players actually use). This is where a dictionary and rules help: not as the translator, but as a layer on top of one.
+The setting is "Перевод речи": off, or "Через наш сервер". When it is on, every finished phrase (the same VAD segment the local model reads) is sent as 16 kHz WAV to `/hark/api/translate` and the answer replaces that line in place, so the local recognition is what the person reads for the first second and the translation takes over when it lands. Measured end to end on 2026-09-18: about 1.7 s from the end of the phrase, of which 1.3 s is the server.
+
+- At most three phrases wait for the server; when speech outruns the network the oldest is dropped rather than shown a minute late.
+- The setting is read per phrase, so turning translation off stops the sending at once.
+- Under the translated line, optionally, the original in small type: `EN · im going mid, cover me`.
+- Two lessons from the live test are in the server: NLLB drops everything after the first sentence, so each sentence goes through on its own; and it sometimes transliterates a Latin placeholder into Cyrillic ("ZQ1" came back as "ЗК1"), so the restoring pass accepts both.
+
+## Gaming slang
+
+General translation models translate slang literally: "push bot" became "толкать ботов", "cover me" became "покрывай меня" with the 600M model. The glossary (`server/glossary.json`) is a layer around the model, not a translator of its own. Four layers, each applied in a single pass so replacements cannot cascade:
+
+- **calls** - a whole short phrase we know by heart ("gl hf" → "удачи и хорошей игры"). No model call at all.
+- **terms** - jargon hidden behind a placeholder before translation and put back after ("awp", "roshan", "third party"). The model never sees them, so it cannot mangle them.
+- **pre** - an English rewrite for slang the model would read wrong ("im knocked" → "I am down and cannot move").
+- **fixes** - the literal Russian the rewrite produces, turned back into what players say ("умирает слишком часто" → "фидит").
+
+### One glossary per game
+
+The same word means different things per game: "push" is a lane in a MOBA and a rush in a shooter, "smoke" is a grenade in CS and a team ability in Dota. Merging every group at once produced nonsense ("he is one shot, push together" → "Он в одной пули от смерти, атакуйте дорожку вместе"), so the groups stay apart and the app says which game it is:
+
+```
+POST /hark/api/translate?game=shooter        (audio)
+POST /hark/api/translate/text  {"game": "moba", ...}
+```
+
+Groups: `common` (always applied), `shooter`, `moba`, `mmo`. The chosen group wins over `common`; `game=all` merges everything and is the default for anyone who does not pass the parameter. Measured after the split, same phrase in both profiles:
+
+| English | `game=shooter` | `game=moba` |
+|---|---|---|
+| smoke mid and take site a | Дым на мид и занять точку А | Смоук на мид и занять место a |
+| he is one shot, push together | Он в одну пулю, заходим вместе | Он в одну тычку, пушим вместе |
+| he is farming jungle, dont feed | (not a shooter phrase) | Он фармит в лесу, не фидите |
+
+Single English verbs never go into `pre`. "push", "pull", "throw" and "feed" are ordinary words, and rewriting them on their own turned "push the button on the left side of the door" into "Заходить вместе кнопку на левой стороне двери". Only multi-word call-outs are rewritten; plain speech passes through untouched (220-390 ms per phrase through the cloud service).
 
 ## Build order
 
-1. Translation service on tyan: Whisper large-v3-turbo + NLLB 1.3B on P100 #1, batching queue, quotas, no storage, systemd unit, Caddy route `/hark/api/translate`.
-2. App: translation mode setting, sending finished phrases to the service, showing the translation and the optional original.
+1. ~~Translation service on tyan: Whisper large-v3-turbo + NLLB 1.3B on P100 #1, batching queue, quotas, no storage, systemd unit, Caddy route `/hark/api/translate`.~~ Done 2026-09-17.
+2. ~~App: translation mode setting, sending finished phrases to the service, showing the translation and the optional original.~~ Done 2026-09-18.
 3. Local mode: Parakeet v3 through sherpa-onnx (same library as today), NLLB 600M through CTranslate2 (the Rust bindings build CTranslate2 from source with CMake; the riskiest step).
 4. Processor or NVIDIA choice for the local translation model.
-5. Gaming glossary.
+5. ~~Gaming glossary.~~ Done 2026-09-18, per-game groups.

@@ -44,6 +44,12 @@ pub trait Sink: Send + 'static {
     fn ready(&self);
     /// A non-speech sound was heard: a key like "laughter" or "music".
     fn sound(&self, key: &'static str);
+    /// Someone is waiting for the audio of finished phrases, not only the text.
+    fn wants_audio(&self) -> bool {
+        false
+    }
+    /// The audio of a finished phrase, for translation elsewhere.
+    fn phrase(&self, _id: u64, _samples: &[f32]) {}
 }
 
 /// AudioSet class names to the sound keys shown as caption tags.
@@ -270,6 +276,11 @@ pub fn run(paths: ModelPaths, rx: Receiver<Msg>, sink: impl Sink) -> anyhow::Res
             // Our buffer holds the same phrase plus the pre-roll, which keeps
             // the first syllable that VAD needs a moment to notice.
             let samples = if first_of_phrase { &buffer[..] } else { segment.samples() };
+            // Translation goes over the network, so it starts before we spend
+            // the decode time here; its answer replaces the line later.
+            if sink.wants_audio() {
+                sink.phrase(id, samples);
+            }
             let text = decode(&asr, samples);
             // Laughter and shouting often open a "speech" segment of their own.
             if let Some(t) = tagger.as_mut() {

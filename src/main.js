@@ -52,7 +52,10 @@ setInterval(() => {
   if (n === 0) return;
   const done = sampleWords >= SAMPLE_DRAFT.length + 1;
   const text = done ? "Я иду на центральную линию, прикрой меня справа." : SAMPLE_DRAFT.slice(0, n).join(" ");
-  sample.push({ id: 2, text, final: done });
+  // With translation on, the sample speaks English and reads Russian, the way
+  // it will happen with a foreign teammate.
+  const translating = settings.translate === "cloud" && settings.showOriginal;
+  sample.push({ id: 2, text, final: done, orig: done && translating ? "EN · im going mid, cover me on the right" : "" });
   if (sampleWords === SAMPLE_DRAFT.length + 2 && settings.soundTags) sample.push({ id: 2, text: "[смех]", final: true, tag: true });
 }, 420);
 
@@ -86,7 +89,9 @@ function update(key, value) {
 
 function pickLook(s) {
   const { font, size, weight, color, outline, bgColor, bgOpacity, lines, fade, align, drafts, caps, mode, signSpeed, signStyle, soundTags, names } = s;
-  return { font, size, weight, color, outline, bgColor, bgOpacity, lines, fade, align, drafts, caps, mode, signSpeed, signStyle, soundTags, names };
+  const { translate, translateTo, game, showOriginal } = s;
+  return { font, size, weight, color, outline, bgColor, bgOpacity, lines, fade, align, drafts, caps, mode, signSpeed, signStyle, soundTags, names,
+    translate, translateTo, game, showOriginal };
 }
 
 function formatOutput(out, value) {
@@ -123,6 +128,10 @@ function reflect() {
     const custom = group.querySelector(".custom");
     custom.classList.toggle("on", !matched);
     custom.querySelector("input").value = value;
+  }
+  // The translation settings mean nothing until translation is on.
+  for (const el of document.querySelectorAll("[data-when-translate]")) {
+    el.hidden = settings.translate !== "cloud";
   }
 }
 

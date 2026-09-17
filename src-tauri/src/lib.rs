@@ -7,6 +7,7 @@ pub mod asr;
 pub mod audio;
 pub mod models;
 mod sources;
+mod translate;
 
 use audio::{Capture, Stopped, Target};
 use serde::Serialize;
@@ -63,6 +64,19 @@ impl Hark {
 
 static PHRASES: AtomicU64 = AtomicU64::new(0);
 
+/// The language to translate into and the game whose slang to use, or None when
+/// translation is off. Read per phrase, so the switch works mid-session.
+fn translation(app: &AppHandle) -> Option<(String, String)> {
+    let hark = app.try_state::<Hark>()?;
+    let settings = hark.settings.lock().unwrap();
+    if settings.get("translate").and_then(|v| v.as_str()).unwrap_or("off") != "cloud" {
+        return None;
+    }
+    let target = settings.get("translateTo").and_then(|v| v.as_str()).unwrap_or("ru");
+    let game = settings.get("game").and_then(|v| v.as_str()).unwrap_or("all");
+    Some((target.to_string(), game.to_string()))
+}
+
 struct EventSink(AppHandle);
 
 impl asr::Sink for EventSink {
@@ -80,6 +94,12 @@ impl asr::Sink for EventSink {
     }
     fn sound(&self, key: &'static str) {
         let _ = self.0.emit("sound", key);
+    }
+    fn wants_audio(&self) -> bool {
+        translation(&self.0).is_some()
+    }
+    fn phrase(&self, id: u64, samples: &[f32]) {
+        translate::submit(&self.0, id, samples);
     }
     fn ready(&self) {
         diag!("speech model loaded");

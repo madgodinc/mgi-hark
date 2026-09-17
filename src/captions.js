@@ -29,6 +29,10 @@ export const DEFAULTS = {
   signStyle: "hand", // "hand" or "strip"
   soundTags: true, // show [смех], [музыка], [выстрелы]
   names: "", // comma-separated names and nicknames to highlight
+  translate: "off", // "off" or "cloud"
+  translateTo: "ru", // the language the person reads
+  game: "all", // whose slang to use: "all", "shooter", "moba", "mmo"
+  showOriginal: true, // a small line with what was actually said
 };
 
 /** Signs are paused until the ВОГ materials arrive: always show text for now. */
@@ -156,13 +160,13 @@ export class CaptionView {
     const { id, text, final } = caption;
     if (this.pending.has(id)) {
       if (final && !text) this.pending.delete(id);
-      else this.pending.set(id, { text, final, tag: caption.tag });
+      else this.pending.set(id, { text, final, tag: caption.tag, orig: caption.orig });
       return;
     }
     if (!this.items.has(id)) {
       if (final && !text) return;
       if (this.items.size >= this.s.lines && !this.oldestReadable()) {
-        this.pending.set(id, { text, final, tag: caption.tag });
+        this.pending.set(id, { text, final, tag: caption.tag, orig: caption.orig });
         this.scheduleFlush();
         return;
       }
@@ -176,7 +180,27 @@ export class CaptionView {
     this.push({ id: `tag-${++this.tagCount}`, text: `[${soundLabel(key, lang)}]`, final: true, tag: true });
   }
 
-  show({ id, text, final, tag }) {
+  /**
+   * The translation of a phrase, which arrives after the line is already shown:
+   * it replaces the text and gives the person time to read it again.
+   */
+  translated({ id, text, original, lang, translated }) {
+    if (!text) return;
+    const sub = this.s.showOriginal && translated && original ? `${String(lang || "").toUpperCase()} · ${original}` : "";
+    const queued = this.pending.get(id);
+    if (queued) {
+      this.pending.set(id, { ...queued, text, final: true, orig: sub });
+      return;
+    }
+    const item = this.items.get(id);
+    this.show({ id, text, final: true, orig: sub });
+    if (item) {
+      item.finalAt = performance.now();
+      this.arm(id);
+    }
+  }
+
+  show({ id, text, final, tag, orig }) {
     let item = this.items.get(id);
     if (final && !text) {
       if (item) this.remove(id);
@@ -189,10 +213,25 @@ export class CaptionView {
       el.append(span);
       this.root.append(el);
       requestAnimationFrame(() => el.classList.remove("entering"));
-      item = { el, span, final: false, finalAt: 0, words: 0, timer: 0 };
+      item = { el, span, orig: null, final: false, finalAt: 0, words: 0, timer: 0 };
       this.items.set(id, item);
     }
     item.el.classList.toggle("tag", !!tag);
+    if (orig) {
+      if (!item.orig) {
+        const line = document.createElement("i");
+        line.className = "cap-orig";
+        // The text sits in its own span so the backdrop hugs the words, the
+        // way it does for the caption above it.
+        item.orig = document.createElement("span");
+        line.append(item.orig);
+        item.el.append(line);
+      }
+      item.orig.textContent = orig;
+    } else if (item.orig) {
+      item.orig.parentElement.remove();
+      item.orig = null;
+    }
     if (final) {
       // One span per whitespace token, so the word being signed can be lit up.
       item.span.replaceChildren(
