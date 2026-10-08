@@ -2540,7 +2540,7 @@ dependencies = [
 
 [[package]]
 name = "mgi-hark"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "anyhow",
  "bzip2 0.5.2",
