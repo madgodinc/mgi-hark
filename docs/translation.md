@@ -68,7 +68,7 @@ The setting is "Перевод речи": off, or "Через наш серве�
 
 ## Gaming slang
 
-General translation models translate slang literally: "push bot" became "толкать ботов", "cover me" became "покрывай меня" with the 600M model. The glossary (`server/glossary.json`) is a layer around the model, not a translator of its own. Four layers, each applied in a single pass so replacements cannot cascade:
+General translation models translate slang literally: "push bot" became "толкать ботов", "cover me" became "покрывай меня" with the 600M model. The glossary (private; format in `server/glossary.example.json`) is a layer around the model, not a translator of its own. Four layers, each applied in a single pass so replacements cannot cascade:
 
 - **calls** - a whole short phrase we know by heart ("gl hf" → "удачи и хорошей игры"). No model call at all.
 - **terms** - jargon hidden behind a placeholder before translation and put back after ("awp", "roshan", "third party"). The model never sees them, so it cannot mangle them.

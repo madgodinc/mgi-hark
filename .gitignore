@@ -5,3 +5,6 @@ src-tauri/gen/
 
 .keys/
 release/
+
+# the full glossary lives in the private hark-glossary repository
+server/glossary.json

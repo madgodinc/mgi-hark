@@ -16,7 +16,8 @@
  *   - пункт"
  *   node scripts/release.mjs --same "Пересборка той же версии"
  *
- * Needs .keys/hark.key (never committed; lose it and no installed copy can be
+ * Needs the full glossary (madgodinc/hark-glossary cloned next to this repo, or
+ * HARK_GLOSSARY), .keys/hark.key (never committed; lose it and no installed copy can be
  * updated again) and the ssh alias `tyan`.
  */
 
@@ -41,6 +42,13 @@ const notes = (notesArg ?? "Обновление Hark").trim();
 
 if (!existsSync(keyPath)) {
   console.error(`No signing key at ${keyPath}. Without it no installed copy accepts the update.`);
+  process.exit(1);
+}
+
+// build.rs falls back to the small example glossary; a release must never ship it.
+const glossaryPath = process.env.HARK_GLOSSARY ?? join(root, "..", "hark-glossary", "glossary.json");
+if (!existsSync(glossaryPath)) {
+  console.error(`No full glossary at ${glossaryPath}. Clone madgodinc/hark-glossary next to mgi-hark.`);
   process.exit(1);
 }
 

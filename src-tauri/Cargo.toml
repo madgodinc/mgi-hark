@@ -4,7 +4,7 @@ version = "0.1.12"
 edition = "2021"
 description = "Live captions for voice chat"
 authors = ["MGI"]
-license-file = "../LICENSE"
+license = "Apache-2.0"
 publish = false
 
 [lib]

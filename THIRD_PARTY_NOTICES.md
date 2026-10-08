@@ -1,6 +1,6 @@
 # Third-party components
 
-Hark is proprietary software of MGI (see `LICENSE`). It includes or downloads the components below, each under its own license.
+Hark is open source under the Apache License 2.0 (see `LICENSE` and `NOTICE`), copyright MGI. It includes or downloads the components below, each under its own license.
 
 ## Bundled in the application
 

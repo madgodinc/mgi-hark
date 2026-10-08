@@ -9,15 +9,16 @@
 //! - **pre** - plain English for slang the model would read wrong;
 //! - **fixes** - the literal Russian that comes back, turned into player speech.
 //!
-//! The file is the one in `server/glossary.json`, built into the binary so the
-//! two never drift apart.
+//! The file is built into the binary by `build.rs`: the private full glossary
+//! when it is there, the same one the service uses, otherwise
+//! `server/glossary.example.json`.
 
 use regex::{Regex, RegexBuilder};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-const SOURCE: &str = include_str!("../../server/glossary.json");
+const SOURCE: &str = include_str!(concat!(env!("OUT_DIR"), "/glossary.json"));
 
 #[derive(Deserialize)]
 struct Groups {

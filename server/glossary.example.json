@@ -1,0 +1,77 @@
+{
+  "_comment": "Example: three entries per layer. The full glossary is private (madgodinc/hark-glossary); build.rs uses this file when it is missing. Gaming speech a general translation model gets wrong, grouped by kind of game. The server merges every group of a language; groups exist so a game can later be chosen in the app. Layers per group, applied in this order: calls (a whole short phrase answered without the model), terms (hidden behind placeholders the model copies verbatim), pre (slang rewritten into plain language before translating), fixes (repairs on the answer). Verbs never go into terms: a placeholder cannot be conjugated. Keys are matched case-insensitively on whole words; the server reloads this file when it changes.",
+  "en": {
+    "groups": {
+      "common": {
+        "calls": {
+          "cover me": "прикрой меня",
+          "cover me please": "прикрой меня",
+          "watch out": "берегись"
+        },
+        "terms": {
+          "ping": "пинг",
+          "fps": "фпс",
+          "afk": "афк"
+        },
+        "pre": {
+          "gl hf": "good luck and have fun",
+          "nt": "nice try",
+          "wp": "well played"
+        },
+        "fixes": {
+          "хорошая работа": "красава",
+          "хорошая попытка": "неплохо",
+          "это было легко": "изи"
+        }
+      },
+      "moba": {
+        "calls": {
+          "push mid": "пушим мид",
+          "push bot": "пушим бот",
+          "push top": "пушим топ"
+        },
+        "terms": {
+          "bot lane": "бот",
+          "top lane": "топ",
+          "creeps": "крипы"
+        },
+        "pre": {
+          "ganking": "attacking by surprise",
+          "ganked": "attacked by surprise",
+          "farming": "collecting gold"
+        },
+        "fixes": {
+          "внезапная атака": "ганк",
+          "атакуют внезапно": "ганкают",
+          "атаковать внезапно": "ганкать"
+        }
+      }
+    }
+  },
+  "ru": {
+    "groups": {
+      "common": {
+        "calls": {
+          "прикрой меня": "cover me",
+          "отходим": "fall back",
+          "нужна помощь": "need help"
+        },
+        "terms": {
+          "пинг": "ping",
+          "лаги": "lag",
+          "фпс": "fps"
+        },
+        "pre": {
+          "рашим": "attack fast together",
+          "кемперят": "waiting in one spot",
+          "фармит": "collecting gold"
+        },
+        "fixes": {
+          "middle line": "mid",
+          "bottom line": "bot lane",
+          "top line": "top lane"
+        }
+      }
+    }
+  }
+}
