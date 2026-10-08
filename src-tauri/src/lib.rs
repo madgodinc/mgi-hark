@@ -130,7 +130,7 @@ impl asr::Sink for EventSink {
     fn caption(&self, caption: asr::Caption) {
         if caption.is_final && !caption.text.is_empty() {
             let n = PHRASES.fetch_add(1, Ordering::SeqCst) + 1;
-            if n == 1 || n % 20 == 0 {
+            if n == 1 || n.is_multiple_of(20) {
                 diag!("recognized phrases: {n}");
             }
             if matches!(translation(&self.0), Some(Mode { place: Where::Local, .. })) {
@@ -291,7 +291,7 @@ fn begin_capture(app: &AppHandle, target: Target, name: String, exe: Option<Stri
             let hark = handle.state::<Hark>();
             {
                 let mut slot = hark.capture.lock().unwrap();
-                if !slot.as_ref().is_some_and(|(g, _)| *g == generation) {
+                if slot.as_ref().is_none_or(|(g, _)| *g != generation) {
                     return; // replaced or stopped by hand meanwhile
                 }
                 // This is our own thread; drop the handle without joining.

@@ -58,6 +58,10 @@ A general translation model reads gaming speech literally: "push bot" comes back
 
 `server/glossary.example.json` shows the format with three entries per layer. The full glossary is maintained separately and is not part of this repository. `build.rs` builds it in when `HARK_GLOSSARY` points at it or when it sits at `../hark-glossary/glossary.json`; otherwise the build uses the example and prints a warning. Everything else works the same with the example; only the translation of gaming slang is weaker.
 
+## Contributing
+
+See `CONTRIBUTING.md`.
+
 ## License
 
 Apache License 2.0, see `LICENSE` and `NOTICE`. Copyright 2026 MGI.

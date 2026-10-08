@@ -19,5 +19,5 @@ A player in a dim room at night, a game running full screen in borderless mode. 
 
 - The overlay is the product. The settings window serves it and previews it exactly.
 - Readability over style: every look setting shows its effect live.
-- No accounts, no cloud: speech never leaves the computer.
+- No accounts. Speech recognition always runs on the user's machine; only the optional cloud translation mode, off by default, sends the audio of a finished phrase to our server.
 - Nothing may require reading long instructions.

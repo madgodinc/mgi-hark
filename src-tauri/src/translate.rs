@@ -92,7 +92,7 @@ fn run(app: AppHandle, rx: Receiver<Job>) {
                     continue;
                 }
                 done += 1;
-                if done == 1 || done % 20 == 0 {
+                if done == 1 || done.is_multiple_of(20) {
                     diag!("translated phrases: {done}, last took {} ms", started.elapsed().as_millis());
                 }
                 let _ = app.emit(
