@@ -18,6 +18,52 @@ const win = getCurrentWindow();
 $("win-min").addEventListener("click", () => win.minimize());
 $("win-close").addEventListener("click", () => win.close());
 
+/* ───────── the MGI look: embers rise from the floor ───────── */
+
+(function embers() {
+  const box = $("embers");
+  const hash = (i, k) => {
+    const x = Math.sin(i * 127.1 + k * 311.7) * 43758.5453;
+    return x - Math.floor(x);
+  };
+  for (let i = 0; i < 26; i++) {
+    const s = document.createElement("span");
+    const size = 2 + hash(i, 1) * 3;
+    s.style.cssText = `left:${hash(i, 2) * 100}%;width:${size}px;height:${size}px;animation-duration:${10 + hash(i, 3) * 12}s;animation-delay:${-hash(i, 4) * 22}s;--dx:${(hash(i, 5) - 0.5) * 160}px`;
+    s.dataset.tone = String(i % 3);
+    box.appendChild(s);
+  }
+})();
+
+// Decoration rests while the window is in the background, so it never costs
+// the game a frame.
+const away = () => document.documentElement.classList.toggle("is-away", !document.hasFocus() || document.hidden);
+addEventListener("focus", away);
+addEventListener("blur", away);
+document.addEventListener("visibilitychange", away);
+away();
+
+/* ───────── tabs: the settings on the left, the preview always on the right ───────── */
+
+const TABS = ["listen", "text", "translate", "window", "help"];
+let tab = "listen";
+function setTab(next) {
+  const from = TABS.indexOf(tab);
+  const to = TABS.indexOf(next);
+  tab = next;
+  document.documentElement.dataset.tab = next;
+  $("pill").style.transform = `translateX(${to * 100}%)`;
+  for (const b of document.querySelectorAll(".tab")) b.classList.toggle("is-on", b.dataset.tab === next);
+  for (const p of document.querySelectorAll("[data-pane]")) {
+    const on = p.dataset.pane === next;
+    p.classList.toggle("is-on", on);
+    p.classList.toggle("from-left", on && to < from);
+  }
+  document.querySelector(".controls").scrollTop = 0;
+}
+for (const b of document.querySelectorAll(".tab")) b.addEventListener("click", () => setTab(b.dataset.tab));
+setTab("listen");
+
 const state = await invoke("get_state");
 let settings = withDefaults(state.settings);
 const preview = new CaptionView($("preview"), settings, $("preview-view"));
@@ -377,10 +423,26 @@ function autoSelect() {
 let modelReady = state.engine_ready;
 let waiting = state.waiting || null;
 
+// The pill in the title bar says what Hark is doing from any tab.
+function renderNet() {
+  const net = $("net");
+  if (listening?.on) {
+    net.dataset.tone = "ok";
+    $("net-text").textContent = `Слушаю: ${listening.name}`;
+  } else if (waiting) {
+    net.dataset.tone = "wait";
+    $("net-text").textContent = `Жду ${waiting}`;
+  } else {
+    net.dataset.tone = "idle";
+    $("net-text").textContent = "Не слушает";
+  }
+}
+
 function renderListen() {
   const btn = $("listen");
   const note = $("listen-note");
   renderSteps();
+  renderNet();
   if (listening?.on || waiting) {
     btn.textContent = "Остановить";
     btn.classList.add("stop");
@@ -814,7 +876,7 @@ $("send-errors").checked = state.settings.send_errors ?? true;
 $("send-errors").addEventListener("change", (e) => invoke("save_settings", { settings: { send_errors: e.target.checked } }));
 
 $("to-support").addEventListener("click", () => {
-  $("support").scrollIntoView({ behavior: "smooth", block: "start" });
+  setTab("help");
   setTimeout(() => $("fb-message").focus({ preventScroll: true }), 400);
 });
 

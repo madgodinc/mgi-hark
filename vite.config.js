@@ -4,7 +4,9 @@ import { defineConfig } from "vite";
 export default defineConfig({
   clearScreen: false,
   assetsInclude: ["**/*.glb"],
-  server: { port: 1430, strictPort: true },
+  // The Rust build writes and locks files under src-tauri/target; watching
+  // them crashes the dev server on Windows (EBUSY).
+  server: { port: 1430, strictPort: true, watch: { ignored: ["**/src-tauri/**"] } },
   build: {
     target: "es2022",
     rollupOptions: {
