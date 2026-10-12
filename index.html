@@ -72,7 +72,7 @@
             <output data-for="signSpeed" data-unit=" /с"></output>
           </label>
           <form class="try" id="try" data-signs-hidden>
-            <input type="text" id="try-text" placeholder="Напишите слово" autocomplete="off" spellcheck="false" />
+            <input type="text" id="try-text" aria-label="Слово, чтобы посмотреть его жестами" placeholder="Напишите слово" autocomplete="off" spellcheck="false" />
             <button type="submit" class="secondary">Показать жестами</button>
           </form>
           <p class="note" data-signs-hidden>Слова, для которых есть свой жест, показываются одним жестом. Остальные показываются по буквам, дактилем.</p>
@@ -225,8 +225,8 @@
             <input type="checkbox" data-key="soundTags" />
           </label>
           <div class="names">
-            <span class="label">Ваше имя и ники, через запятую: когда их произносят, они подсвечиваются</span>
-            <input type="text" id="names" maxlength="200" placeholder="Например: Саша, Санёк, xXSashaXx" autocomplete="off" spellcheck="false" />
+            <span class="label" id="names-label">Ваше имя и ники, через запятую: когда их произносят, они подсвечиваются</span>
+            <input type="text" id="names" aria-labelledby="names-label" maxlength="200" placeholder="Например: Саша, Санёк, xXSashaXx" autocomplete="off" spellcheck="false" />
           </div>
         </section>
 
@@ -261,8 +261,8 @@
             <button type="button" data-value="idea" aria-pressed="false">Идея</button>
             <button type="button" data-value="other" aria-pressed="false">Другое</button>
           </div>
-          <textarea id="fb-message" rows="4" maxlength="2000" placeholder="Опишите, что случилось или что добавить"></textarea>
-          <input type="text" id="fb-contact" maxlength="200" placeholder="Как с вами связаться: Telegram или почта (необязательно)" autocomplete="off" />
+          <textarea id="fb-message" aria-label="Сообщение" rows="4" maxlength="2000" placeholder="Опишите, что случилось или что добавить"></textarea>
+          <input type="text" id="fb-contact" aria-label="Как с вами связаться, необязательно" maxlength="200" placeholder="Как с вами связаться: Telegram или почта (необязательно)" autocomplete="off" />
           <label class="field toggle">
             <span class="label">Приложить технический отчёт (без текста разговоров)</span>
             <input type="checkbox" id="fb-attach" checked />

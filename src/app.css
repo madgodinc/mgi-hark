@@ -278,7 +278,8 @@ output { text-align: right; font: 600 12px var(--mono); color: var(--ink); }
 
 /* segmented choice, as the filters in Stream Control */
 .seg { display: flex; gap: 3px; padding: 3px; border-radius: 13px; background: var(--well); border: 1px solid var(--line); }
-.seg.wrap { flex-wrap: wrap; }
+/* flex-start: a short pill next to a two-line sibling must not stretch into a slab */
+.seg.wrap { flex-wrap: wrap; align-items: flex-start; }
 .seg.wrap button { flex: 1 1 calc(50% - 3px); }
 /* an odd last choice takes the whole row instead of hanging alone */
 .seg.wrap button:last-child:nth-child(odd) { flex-basis: 100%; }
